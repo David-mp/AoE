@@ -1,7 +1,10 @@
-﻿
+﻿//#define print
+
 using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
+
+
 
 /* SET UP:
  * -Open the Script folder
@@ -15,7 +18,7 @@ using System.Collections.Generic;
  *      -The "MapPlane" layer is missing: To add it, go to "layers" at the top-right corner -> Edit layers -> Write at the 9 position "MapPlane", save and rerun
  * 
  * 
- * RULES
+ * GAME INFO
  * There are different terrains represented by a color with their own upsides/downsides:
  * -Grey: Trail - 1 Movement (--Hard to spot)
  * -Yellow: Meadow - 2 Movement (++Attack bonus, -Hard to spot)
@@ -55,6 +58,7 @@ public class MapManager : MonoBehaviour
     private const float TILE_SIZE = 1.0f;
     private const float TILE_OFFSET = 0.5f;
 
+    //Map size, it can be adjusted to the player's preferences
     public const int MAP_WIDTH = 16;
     public const int MAP_HEIGHT = 16;
 
@@ -62,7 +66,7 @@ public class MapManager : MonoBehaviour
     private int selectionY = -1;
 
     //Terrain variable, it has all the terrain info, and it doesn't change over the time
-    public Casilla[,] casillas;
+    public static Casilla[,] casillas;
     //Unit variable, it collects where all the units are at any moment
     public Unit[,] Units;
 
@@ -83,7 +87,7 @@ public class MapManager : MonoBehaviour
     //UnitPrefabs contains every unitPrefab needed. It has to be initializated manually with Unity UI.
     //ActiveUnits contains the GameObject of every unit, and has being created by code.
     public List<GameObject> UnitPrefabs;
-    private List<GameObject> ActiveUnits;
+    public List<GameObject> ActiveUnits;
 
 
 
@@ -105,6 +109,7 @@ public class MapManager : MonoBehaviour
         Destroy(Plane.GetComponent<MeshCollider>());
         Plane.AddComponent<BoxCollider>();
         Plane.GetComponent<MeshRenderer>().enabled = false;
+        //Sets the layer number 9, "MapPlane" for the Plane
         Plane.layer = 9;
 
 
@@ -124,6 +129,227 @@ public class MapManager : MonoBehaviour
 
         SetCasillasProperties();
         SpawnAllUnits();
+        CreateCheers();
+    }
+   
+
+    // Update is called once per frame
+    void Update()
+    {
+        UpdateSelection();
+        DrawMap();
+
+        //Select a Unit/Move
+        if (Input.GetMouseButtonDown(0))
+        {
+            if(selectionX >= 0 && selectionY >= 0)
+            {
+                if(SelectedUnit == null)
+                {
+                    SelectUnit(selectionX, selectionY);
+                }
+                else
+                {   //Unit already selected - Move/Attack order
+
+                    //If there is no unit on the terrain, it is a move command
+                    if (Units[selectionX, selectionY] == null)
+                    {
+                        MoveUnit(selectionX, selectionY);
+                    } else
+                    { //Clicked on a enemy unit, it is an attack move
+                        if(Units[selectionX, selectionY].Player != PlayerTurn && PossibleMove(SelectedUnit, selectionX, selectionY, 2))
+                        {
+                            Battle(SelectedUnit, Units[selectionX, selectionY]);
+                        }
+                    }
+                        
+                }
+            }
+        }
+        
+        //End turn
+        if (Input.GetMouseButtonDown(1))
+        {
+            EndTurn();
+        }
+
+        //Jump into the next unit
+        if (Input.GetMouseButtonDown(2))
+        {
+            CameraOnNextUnit(PlayerTurn);
+        }
+    }
+
+    private void SelectUnit(int x, int y)
+    {
+        //Clicked on terrain - canceled
+        if (Units[x, y] == null)
+            return;
+
+        //Clicked on a not own unit - canceled
+        if (Units[x, y].Player != PlayerTurn)
+            return;
+
+        //Clicked on an own unit - success
+        SelectedUnit = Units[x, y];
+        
+
+    }
+
+    private void MoveUnit(int x, int y)
+    {
+        if (PossibleMove(SelectedUnit, x, y, 1))
+        {
+            //Move the unit and its transform
+            Units[SelectedUnit.CurrentX, SelectedUnit.CurrentY] = null;
+            SelectedUnit.transform.position = GetTileCenter(x, y);
+            Units[x, y] = SelectedUnit;
+            Units[x, y].CurrentX = x;
+            Units[x, y].CurrentY = y;
+            SelectedUnit.ActionsRemaining--;
+
+            //Remove the old Squarepool and calculate it again at the new position
+            SelectedUnit.ReachableSquares.RemoveRange(0, SelectedUnit.ReachableSquares.Count);
+            SelectedUnit.CasillasInspeccionadas.RemoveRange(0, SelectedUnit.CasillasInspeccionadas.Count);
+            GetReachableSquares(SelectedUnit);
+        }
+        SelectedUnit = null;
+
+    }
+
+    private void Battle(Unit attacker, Unit defender)
+    {
+        //First, we calculate the unit's stats for the incoming battle (Terrain modificator, type bonusses, unit buffs...) 
+        //This way, these bonusses will expire and the unit will no longer maintain them
+        //Attacker stats
+        int AttackStatA = (int)(attacker.BaseAttack * (1 + casillas[attacker.CurrentX,attacker.CurrentY].AttackAdaptor));
+        int DefenseStatA = (int)(attacker.BaseDefense * (1 + casillas[attacker.CurrentX, attacker.CurrentY].DefenseAdaptor)); 
+        int HitPointsRemainingA = attacker.HitPoints;
+
+        //Defender stats
+        int AttackStatD = (int)(defender.BaseAttack * (1 + casillas[defender.CurrentX, attacker.CurrentY].AttackAdaptor));
+        int DefenseStatD = (int)(defender.BaseDefense * (1 + casillas[defender.CurrentX, attacker.CurrentY].DefenseAdaptor));
+        int HitPointsRemainingD = defender.HitPoints;
+
+
+        //Now, the attacker will attack the oponent
+        Debug.Log("Ataque:" + AttackStatA + "   --Defensa:" + DefenseStatD + "   --HpAt:" + HitPointsRemainingA + "  --HpD:" + HitPointsRemainingD);
+        defender.HitPoints = Fight(AttackStatA, DefenseStatD, HitPointsRemainingA, HitPointsRemainingD);
+
+        Debug.Log("Defender RemainingHP:" + defender.HitPoints);
+       
+       
+        //If the oponent survives and it is in attack range, it will retaliate. Otherwise, it is killed
+        
+        if(defender.HitPoints <= 0)
+        {
+            KillUnit(defender);
+        } else
+        {
+            if(PossibleMove(defender, attacker.CurrentX, attacker.CurrentY, 2))
+            {
+                Debug.Log("The defender retaliates!! ");
+                Debug.Log("Ataque:" + AttackStatD + "   --Defensa:" + DefenseStatA + "   --HpAt:" + HitPointsRemainingD + "  --HpD:" + HitPointsRemainingA);
+                attacker.HitPoints = Fight(AttackStatD, DefenseStatA, HitPointsRemainingD, HitPointsRemainingA);
+                Debug.Log("Attacker RemainingHP:" + attacker.HitPoints);
+
+                if (attacker.HitPoints <= 0)
+                {
+                    KillUnit(attacker);
+                }
+            }
+
+        }
+
+        attacker.ActionsRemaining = 0;
+
+    }
+
+    //Fight rule: Every hitpoint of the attacker unit will cause 1hitpoint damage to the defender if the attacker doubles the defender's defense
+    private int Fight(int attack, int defense, int hpA, int hpD)
+    {
+        
+        float DefensorLosses = (float)hpA  * attack / (2 * (float)defense);
+        Debug.Log("Losses" + DefensorLosses);
+        hpD = hpD - (int)DefensorLosses;
+
+        return hpD;
+    }
+
+    private void CameraOnNextUnit(int turn)
+    {
+        switch (turn)
+        {
+            case 1:
+                foreach (Unit u in UnitsP1)
+                {
+                    if (u.ActionsRemaining != 0)
+                    {
+                        Camera.main.transform.position = new Vector3(u.CurrentX, 5, u.CurrentY - 1);
+                        Camera.main.transform.eulerAngles = new Vector3(50, 0, 0);
+                        return;
+                    }
+                }
+                break;
+            case 2:
+                foreach (Unit u in UnitsP2)
+                {
+                    if (u.ActionsRemaining != 0)
+                    {
+                        Camera.main.transform.position = new Vector3(u.CurrentX, 5, u.CurrentY + 3);
+                        Camera.main.transform.eulerAngles = new Vector3(130, 0, 180);
+                        return;
+                    }
+                }
+                break;
+            default:
+                break;
+        }
+
+        //No more units, Job's done!
+        GameObject.Find("Main Camera").GetComponent<AudioSource>().Play();
+
+    }
+
+    private void DrawMap()
+    {
+        Vector3 widthLine = Vector3.right * MAP_WIDTH;
+        Vector3 heightLine = Vector3.forward * MAP_HEIGHT;
+
+
+        //Draw Map
+        for (int i = 0; i <= MAP_WIDTH; i++)
+        {
+            Vector3 start = Vector3.forward * i;
+            Debug.DrawLine(start, start + widthLine);
+
+            for (int j = 0; j <= MAP_HEIGHT; j++)
+            {
+                start = Vector3.right * j;
+                Debug.DrawLine(start, start + heightLine);
+            }
+        }
+        //Draw Selection
+
+        if (selectionX >= 0 && selectionY >= 0)
+        {
+            Debug.DrawLine(
+                Vector3.forward * selectionY + Vector3.right * selectionX,
+                Vector3.forward * (selectionY + 1) + Vector3.right * (selectionX + 1));
+
+            Debug.DrawLine(
+                Vector3.forward * (selectionY + 1) + Vector3.right * selectionX,
+                Vector3.forward * selectionY + Vector3.right * (selectionX + 1));
+        }
+
+        //Draw PossibleMoves
+        if (SelectedUnit != null)
+        {
+            PaintPossibleMoves(SelectedUnit);
+        }
+            
+
+
     }
 
     //Once the Squares are created, it fills all their fields
@@ -222,171 +448,6 @@ public class MapManager : MonoBehaviour
         }
     }
 
-   
-
-    // Update is called once per frame
-    void Update()
-    {
-        UpdateSelection();
-        DrawMap();
-
-        //Select a Unit/Move
-        if (Input.GetMouseButtonDown(0))
-        {
-                
-            if(selectionX >= 0 && selectionY >= 0)
-            {
-                if(SelectedUnit == null)
-                {
-                    SelectUnit(selectionX, selectionY);
-                }
-                else
-                {
-                    MoveUnit(selectionX, selectionY);
-                }
-            }
-        }
-        
-        //End turn
-        if (Input.GetMouseButtonDown(1))
-        {
-            EndTurn();
-        }
-
-        if (Input.GetMouseButtonDown(2))
-        {
-
-            CameraOnNextUnit(PlayerTurn);
-
-
-        }
-
-    }
-
-    private void CameraOnNextUnit(int turn)
-    {
-        switch (turn)
-        {
-            case 1:
-                foreach (Unit u in UnitsP1)
-                {
-                    if(u.ActionsRemaining != 0)
-                    {
-                        Camera.main.transform.position = new Vector3(u.CurrentX, 5, u.CurrentY - 1);
-                        Camera.main.transform.eulerAngles = new Vector3(50, 0, 0);
-                        return;
-                    }
-                }
-                break;
-            case 2:
-                foreach (Unit u in UnitsP2)
-                {
-                    if (u.ActionsRemaining != 0)
-                    {
-                        Camera.main.transform.position = new Vector3(u.CurrentX, 5, u.CurrentY + 3);
-                        Camera.main.transform.eulerAngles = new Vector3(130, 0, 180);
-                        return;
-                    }
-                }
-                break;
-            default:
-                break;
-        }
-
-        //No more units, Job's done!
-        GameObject.Find("Main Camera").GetComponent<AudioSource>().Play();
-
-    }
-
-    private void SelectUnit(int x, int y)
-    {
-        //Clicked on terrain - canceled
-        if (Units[x, y] == null)
-            return;
-
-        //Clicked on a not own unit - canceled
-        if (Units[x, y].Player != PlayerTurn)
-            return;
-
-        //Clicked on an own unit - success
-        SelectedUnit = Units[x, y];
-        
-
-    }
-
-    private void MoveUnit(int x, int y)
-    {
-        if (PossibleMove(SelectedUnit, x, y))
-        {
-            //Move the unit and its transform
-            Units[SelectedUnit.CurrentX, SelectedUnit.CurrentY] = null;
-            SelectedUnit.transform.position = GetTileCenter(x, y);
-            Units[x, y] = SelectedUnit;
-            Units[x, y].CurrentX = x;
-            Units[x, y].CurrentY = y;
-            SelectedUnit.ActionsRemaining--;
-
-            //Remove the old Squarepool and calculate it again at the new position
-            SelectedUnit.ReachableSquares.RemoveRange(0, SelectedUnit.ReachableSquares.Count);
-            SelectedUnit.CasillasInspeccionadas.RemoveRange(0, SelectedUnit.CasillasInspeccionadas.Count);
-            GetReachableSquares(SelectedUnit);
-        }
-        SelectedUnit = null;
-
-    }
-
-    private void AttackMove(Unit attacker, Unit defender)
-    {
-        attacker.ActionsRemaining = 0;
-
-        //If hp = 0 -- llamar a muere la unidad
-        //Si muere la unidad - desaparece del juego y del tablero. Comprobar si era la ultima unidad del jugador
-        //
-    }
-
-    
-
-    private void DrawMap()
-    {
-        Vector3 widthLine = Vector3.right * MAP_WIDTH;
-        Vector3 heightLine = Vector3.forward * MAP_HEIGHT;
-
-
-        //Draw Map
-        for (int i = 0; i <= MAP_WIDTH; i++)
-        {
-            Vector3 start = Vector3.forward * i;
-            Debug.DrawLine(start, start + widthLine);
-
-            for (int j = 0; j <= MAP_HEIGHT; j++)
-            {
-                start = Vector3.right * j;
-                Debug.DrawLine(start, start + heightLine);
-            }
-        }
-        //Draw Selection
-
-        if (selectionX >= 0 && selectionY >= 0)
-        {
-            Debug.DrawLine(
-                Vector3.forward * selectionY + Vector3.right * selectionX,
-                Vector3.forward * (selectionY + 1) + Vector3.right * (selectionX + 1));
-
-            Debug.DrawLine(
-                Vector3.forward * (selectionY + 1) + Vector3.right * selectionX,
-                Vector3.forward * selectionY + Vector3.right * (selectionX + 1));
-        }
-
-        //Draw PossibleMoves
-        if (SelectedUnit != null)
-        {
-            PaintPossibleMoves(SelectedUnit);
-        }
-            
-
-
-    }
-
     //Helper that initializes the unit prefabs 
     private void SetUpPrefabs()
     {
@@ -417,6 +478,7 @@ public class MapManager : MonoBehaviour
         UnitPrefabs.Add(unitprefab);
     }
 
+    //Selects which units are going to be in the game aswell as their positions
     private void SpawnAllUnits()
     {
         ActiveUnits = new List<GameObject>();
@@ -450,6 +512,7 @@ public class MapManager : MonoBehaviour
         go.AddComponent<Unit>();
         Units[x, y] = go.GetComponent<Unit>();
         Units[x, y].SetPosition(x, y);
+        Units[x, y].GameUnit = go;
         SetUnitProperties(index, x, y);
         ActiveUnits.Add(go);
     }
@@ -460,123 +523,50 @@ public class MapManager : MonoBehaviour
         switch (index)
         {
             case 0:
-                Units[x, y].Name = "SiegeBallista";
-                Units[x, y].Type = "Siege";
-                Units[x, y].Player = 1;
-                Units[x, y].Movement = 7;
-                Units[x, y].BaseAttack = 300;
-                Units[x, y].BaseDefense = 200;
-                Units[x, y].BaseRange = 3;
-                Units[x, y].BaseVision = 8;
-                Units[x, y].ActionsRemaining = 1;
-                Units[x, y].ReachableSquares = new List<Casilla>();
-                Units[x, y].CasillasInspeccionadas = new List<Casilla>();
+                FillUnitProperties(Units[x, y], "SiegeBallista", "Siege", 1, 7, 300, 200, 3, 8, 1);
+
                 GetReachableSquares(Units[x, y]);
                 UnitsP1.Add(Units[x, y]);
-
                 break;
             case 1:
-                Units[x, y].Name = "SiegeCatapult";
-                Units[x, y].Type = "Siege";
-                Units[x, y].Player = 1;
-                Units[x, y].Movement = 7;
-                Units[x, y].BaseAttack = 300;
-                Units[x, y].BaseDefense = 200;
-                Units[x, y].BaseRange = 3;
-                Units[x, y].BaseVision = 8;
-                Units[x, y].ActionsRemaining = 1;
-                Units[x, y].ReachableSquares = new List<Casilla>();
-                Units[x, y].CasillasInspeccionadas = new List<Casilla>();
+                FillUnitProperties(Units[x, y], "SiegeCatapult", "Siege", 1, 7, 300, 200, 3, 8, 1);
+
                 GetReachableSquares(Units[x, y]);
                 UnitsP1.Add(Units[x, y]);
                 break;
             case 2:
-                Units[x, y].Name = "SiegeRam";
-                Units[x, y].Type = "Siege";
-                Units[x, y].Player = 1;
-                Units[x, y].Movement = 7;
-                Units[x, y].BaseAttack = 300;
-                Units[x, y].BaseDefense = 200;
-                Units[x, y].BaseRange = 3;
-                Units[x, y].BaseVision = 8;
-                Units[x, y].ActionsRemaining = 1;
-                Units[x, y].ReachableSquares = new List<Casilla>();
-                Units[x, y].CasillasInspeccionadas = new List<Casilla>();
+                FillUnitProperties(Units[x, y], "SiegeRam", "Siege", 1, 7, 300, 200, 3, 8, 1);
+
                 GetReachableSquares(Units[x, y]);
                 UnitsP1.Add(Units[x, y]);
                 break;
             case 3:
-                Units[x, y].Name = "SiegeTrebuchet";
-                Units[x, y].Type = "Siege";
-                Units[x, y].Player = 1;
-                Units[x, y].Movement = 7;
-                Units[x, y].BaseAttack = 300;
-                Units[x, y].BaseDefense = 200;
-                Units[x, y].BaseRange = 3;
-                Units[x, y].BaseVision = 8;
-                Units[x, y].ActionsRemaining = 1;
-                Units[x, y].ReachableSquares = new List<Casilla>();
-                Units[x, y].CasillasInspeccionadas = new List<Casilla>();
+                FillUnitProperties(Units[x, y], "SiegeBallista", "Siege", 1, 7, 300, 200, 3, 8, 1);
+
                 GetReachableSquares(Units[x, y]);
                 UnitsP1.Add(Units[x, y]);
                 break;
             case 4:
-                Units[x, y].Name = "SiegeBallista";
-                Units[x, y].Type = "Siege";
-                Units[x, y].Player = 2;
-                Units[x, y].Movement = 7;
-                Units[x, y].BaseAttack = 300;
-                Units[x, y].BaseDefense = 200;
-                Units[x, y].BaseRange = 3;
-                Units[x, y].BaseVision = 8;
-                Units[x, y].ActionsRemaining = 1;
-                Units[x, y].ReachableSquares = new List<Casilla>();
-                Units[x, y].CasillasInspeccionadas = new List<Casilla>();
+                FillUnitProperties(Units[x, y], "SiegeBallista", "Siege", 2, 7, 300, 200, 3, 8, 1);
+
                 GetReachableSquares(Units[x, y]);
                 UnitsP2.Add(Units[x, y]);
                 break;
             case 5:
-                Units[x, y].Name = "SiegeCatapult";
-                Units[x, y].Type = "Siege";
-                Units[x, y].Player = 2;
-                Units[x, y].Movement = 7;
-                Units[x, y].BaseAttack = 300;
-                Units[x, y].BaseDefense = 200;
-                Units[x, y].BaseRange = 3;
-                Units[x, y].BaseVision = 8;
-                Units[x, y].ActionsRemaining = 1;
-                Units[x, y].ReachableSquares = new List<Casilla>();
-                Units[x, y].CasillasInspeccionadas = new List<Casilla>();
+                FillUnitProperties(Units[x, y], "SiegeCatapult", "Siege", 2, 7, 300, 200, 3, 8, 1);
+
                 GetReachableSquares(Units[x, y]);
                 UnitsP2.Add(Units[x, y]);
                 break;
             case 6:
-                Units[x, y].Name = "SiegeRam";
-                Units[x, y].Type = "Siege";
-                Units[x, y].Player = 2;
-                Units[x, y].Movement = 7;
-                Units[x, y].BaseAttack = 300;
-                Units[x, y].BaseDefense = 200;
-                Units[x, y].BaseRange = 3;
-                Units[x, y].BaseVision = 8;
-                Units[x, y].ActionsRemaining = 1;
-                Units[x, y].ReachableSquares = new List<Casilla>();
-                Units[x, y].CasillasInspeccionadas = new List<Casilla>();
+                FillUnitProperties(Units[x, y], "SiegeRam", "Siege", 2, 7, 300, 200, 3, 8, 1);
+
                 GetReachableSquares(Units[x, y]);
                 UnitsP2.Add(Units[x, y]);
                 break;
             case 7:
-                Units[x, y].Name = "SiegeTrebuchet";
-                Units[x, y].Type = "Siege";
-                Units[x, y].Player = 2;
-                Units[x, y].Movement = 7;
-                Units[x, y].BaseAttack = 300;
-                Units[x, y].BaseDefense = 200;
-                Units[x, y].BaseRange = 3;
-                Units[x, y].BaseVision = 8;
-                Units[x, y].ActionsRemaining = 1;
-                Units[x, y].ReachableSquares = new List<Casilla>();
-                Units[x, y].CasillasInspeccionadas = new List<Casilla>();
+                FillUnitProperties(Units[x, y], "SiegeTrebuchet", "Siege", 2, 7, 300, 200, 3, 8, 1);
+
                 GetReachableSquares(Units[x, y]);
                 UnitsP2.Add(Units[x, y]);
                 break;
@@ -587,8 +577,68 @@ public class MapManager : MonoBehaviour
         }
     }
 
+    //Helper of SetUnitProperties
+    private void FillUnitProperties(Unit unit, string name, string type, int player, int movement, int baseAttack, int baseDefense, int baseRange, int BaseVision, int actions)
+    {
+        unit.Name = name;
+        unit.Type = type;
+        unit.Player = player;
+        unit.Movement = movement;
+        unit.BaseAttack = baseAttack;
+        unit.BaseDefense = baseDefense;
+        unit.BaseRange = baseRange;
+        unit.BaseVision = BaseVision;
+        unit.ActionsRemaining = actions;
+
+        unit.HitPoints = 100;
+        unit.ReachableSquares = new List<Casilla>();
+        unit.CasillasInspeccionadas = new List<Casilla>();
+    }
+
+    //Remove a unit from the game
+    private void KillUnit(Unit unit)
+    {
+        if (ActiveUnits.Contains(unit.GameUnit))
+        {
+            //Remove from ActiveUnits on the board
+
+            ActiveUnits.Remove(unit.GameUnit);
+            Debug.Log("Se ha eliminado la unidad, unidades activas:" + ActiveUnits.Count);
+
+            //Remove from the array
+            Units[unit.CurrentX, unit.CurrentY] = null;
+
+            //Remove from the available units list of the player
+            if (unit.Player == 1)
+            {
+                UnitsP1.Remove(unit);
+            }
+            if (unit.Player == 2)
+            {
+                UnitsP2.Remove(unit);
+            }
+
+            //Remove from the board
+            Destroy(unit.GameUnit);
+
+            //Check if it was the last player's unit and end the game
+            if (UnitsP1.Count == 0)
+            {
+                Debug.Log("PLAYER 2 WINS");
+                //EndGame(P2);
+            }
+            if (UnitsP2.Count == 0)
+            {
+                Debug.Log("PLAYER 1 WINS");
+                //EndGame(P1);
+            }
+        }
+
+
+    }
+
     //Algorithm that fills the ReachableSquares List of a unit
-    public void GetReachableSquares(Unit unit)
+    private void GetReachableSquares(Unit unit)
     {
         //A copy of ReachableSquares is necesary because you cannot iterate a collection that is changing inside the foreach loop
         List<Casilla> ReachableCopy = new List<Casilla>();
@@ -604,9 +654,9 @@ public class MapManager : MonoBehaviour
             ReachableCopy.RemoveRange(0, ReachableCopy.Count);
             ReachableCopy = unit.ReachableSquares.GetRange(0, unit.ReachableSquares.Count);
 
-
+            #if print
             Debug.Log("Reachable: " + unit.ReachableSquares.Count + "  --- Inspeccionadas: " + unit.CasillasInspeccionadas.Count);
-
+            #endif
             foreach (Casilla c in ReachableCopy)
             {
                 //Inside the loop, we only modify the original List, which is what matters
@@ -617,7 +667,7 @@ public class MapManager : MonoBehaviour
     }
 
     //Helper of GetReachableSquares. Inspect the 4 Adjacent squares to the x,y square
-    public void GetAdjacent(Unit unit, int x, int y, int movement)
+    private void GetAdjacent(Unit unit, int x, int y, int movement)
     {
 
         //First, we check if the adjacent square is outside of the map. 
@@ -627,7 +677,10 @@ public class MapManager : MonoBehaviour
         {
             if (!unit.CasillasInspeccionadas.Contains(casillas[x, y + 1]) && casillas[x, y + 1].MovementCost <= movement)
             {
+                #if print
                 Debug.Log("Coste de casilla x,y+1: [" + x + "," + (y + 1) + "] - " + casillas[x, y + 1].MovementCost);
+                #endif
+                
                 unit.ReachableSquares.Add(casillas[x, y + 1]);
                 unit.RemainingMove[x, y + 1] = movement - casillas[x, y + 1].MovementCost;
             }
@@ -639,7 +692,9 @@ public class MapManager : MonoBehaviour
 
             if (!unit.CasillasInspeccionadas.Contains(casillas[x, y - 1]) && casillas[x, y - 1].MovementCost <= movement)
             {
+                #if print
                 Debug.Log("Coste de casilla x,y-1: [" + x + "," + (y - 1) + "] - " + casillas[x, y - 1].MovementCost);
+                #endif
                 unit.ReachableSquares.Add(casillas[x, y - 1]);
                 unit.RemainingMove[x, y - 1] = movement - casillas[x, y - 1].MovementCost;
             }
@@ -651,7 +706,9 @@ public class MapManager : MonoBehaviour
         {
             if (!unit.CasillasInspeccionadas.Contains(casillas[x + 1, y]) && casillas[x + 1, y].MovementCost <= movement)
             {
-                Debug.Log("Coste de casilla x+1,y: [" + (x + 1) + "," + y + "] - " + casillas[x + 1, y].MovementCost);
+                #if print
+                Debug.Log("Coste de casilla x+1,y: [" + (x + 1) + "," + y + "] - " + casillas[x + 1, y].MovementCost);            
+                #endif
                 unit.ReachableSquares.Add(casillas[x + 1, y]);
                 unit.RemainingMove[x + 1, y] = movement - casillas[x + 1, y].MovementCost;
             }
@@ -663,7 +720,9 @@ public class MapManager : MonoBehaviour
         {
             if (!unit.CasillasInspeccionadas.Contains(casillas[x - 1, y]) && casillas[x - 1, y].MovementCost <= movement)
             {
+                #if print
                 Debug.Log("Coste de casilla x-1,y: [" + (x - 1) + "," + y + "] - " + casillas[x - 1, y].MovementCost);
+                #endif
                 unit.ReachableSquares.Add(casillas[x - 1, y]);
                 unit.RemainingMove[x - 1, y] = movement - casillas[x - 1, y].MovementCost;
             }
@@ -691,12 +750,35 @@ public class MapManager : MonoBehaviour
         }
     }
 
-    //Helper that allows a move or not
-    public bool PossibleMove(Unit unit, int x, int y)
+    //Helper that allows an action or not
+    public bool PossibleMove(Unit unit, int x, int y, int mode)
     {
-        if (unit.CasillasInspeccionadas.Contains(casillas[x, y]) && Units[x, y] == null && unit.ActionsRemaining != 0)
-            return true;
+        switch (mode)
+        {
+            //mode = 1 - The action is a move
+            case 1:
+                if (unit.CasillasInspeccionadas.Contains(casillas[x, y]) && unit.ActionsRemaining != 0)
+                    return true;
+                break;
 
+            //mode = 2 - The action is an attack
+            case 2:
+                //First, if the defender is in range
+                int attackerRange = unit.BaseRange + casillas[unit.CurrentX, unit.CurrentY].RangeAdaptor;
+                int distance = Mathf.Abs(unit.CurrentX - x) + Mathf.Abs(unit.CurrentY - y);
+                
+                if(distance <= attackerRange)
+                {
+                    Debug.Log("Enemy in range!!");
+                    return true;
+                }
+                Debug.Log("Enemy NOT in range!!");
+                break;
+
+            default:
+                Debug.Log("Wrong mode index at PossibleMove:" + mode);
+                break;
+        }
         return false;
     }
 
@@ -719,6 +801,13 @@ public class MapManager : MonoBehaviour
                 }
             }
             PlayerTurn = 2;
+
+            //Swaps the color cubes and texts that show the player turn
+            GameObject.Find("TurnCube1").GetComponent<Renderer>().material = Resources.Load("Red", typeof(Material)) as Material;
+            GameObject.Find("TurnCube2").GetComponent<Renderer>().material = Resources.Load("Red", typeof(Material)) as Material;
+            GameObject.Find("TurnText1").GetComponent<TextMesh>().text = "P2 TURN";
+            GameObject.Find("TurnText2").GetComponent<TextMesh>().text = "P2 TURN";
+            
             return;
 
 
@@ -739,8 +828,104 @@ public class MapManager : MonoBehaviour
                 }
             }
             PlayerTurn = 1;
+
+            GameObject.Find("TurnCube1").GetComponent<Renderer>().material = Resources.Load("River", typeof(Material)) as Material;
+            GameObject.Find("TurnCube2").GetComponent<Renderer>().material = Resources.Load("River", typeof(Material)) as Material;
+            GameObject.Find("TurnText1").GetComponent<TextMesh>().text = "P1 TURN";
+            GameObject.Find("TurnText2").GetComponent<TextMesh>().text = "P1 TURN";
+
             return;
         }
+    }
+
+    //Creates the decorative cubes and texts
+    private void CreateCheers()
+    {
+        int cubeHeight = 4;
+        int lateralEdge = 3;
+
+        GameObject cubeP1 = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        cubeP1.name = "CubeP1";
+
+        cubeP1.transform.position = new Vector3(MAP_WIDTH / 2, cubeHeight / 2, MAP_HEIGHT + 5);
+        cubeP1.transform.localScale = new Vector3(MAP_WIDTH + 2*lateralEdge, cubeHeight, cubeHeight);
+
+        GameObject cubeP2 = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        cubeP2.name = "CubeP2";
+
+        cubeP2.transform.position = new Vector3(MAP_WIDTH / 2, cubeHeight / 2, -5);
+        cubeP2.transform.localScale = new Vector3(MAP_WIDTH + 2 * lateralEdge, cubeHeight, cubeHeight); 
+
+        GameObject textP1 = new GameObject();
+        GameObject textP2 = new GameObject();
+
+        textP1.name = "CheersP1";
+        textP2.name = "CheersP2";
+
+        textP1.AddComponent<TextMesh>();
+        textP1.GetComponent<TextMesh>().text = "Go P1";
+        textP2.AddComponent<TextMesh>();
+        textP2.GetComponent<TextMesh>().text = "Go P2";
+
+        textP1.transform.position = new Vector3((MAP_WIDTH / 2) - lateralEdge, (cubeHeight / 2) + 1, MAP_HEIGHT + lateralEdge);
+        textP2.transform.position = new Vector3((MAP_WIDTH / 2) + lateralEdge, (cubeHeight / 2) + 1, -lateralEdge);
+        textP2.transform.Rotate(0, 180, 0);
+
+        textP1.transform.localScale = new Vector3(1.25f, 1.25f, 1);
+        textP2.transform.localScale = new Vector3(1.25f, 1.25f, 1);
+
+        textP1.GetComponent<TextMesh>().color = new Vector4(1, 0, 1, 1);
+        textP2.GetComponent<TextMesh>().color = new Vector4(1, 0, 1, 1);
+
+        cubeP1.GetComponent<Renderer>().material = Resources.Load("fondo", typeof(Material)) as Material;
+        cubeP2.GetComponent<Renderer>().material = Resources.Load("fondo", typeof(Material)) as Material;
+
+
+
+
+
+        //TURN CUBES-----------------------------------------------------------------------------
+        int turnCubeHeight = 6;
+        GameObject turnCube1 = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        turnCube1.name = "TurnCube1";
+
+        turnCube1.transform.position = new Vector3(MAP_WIDTH + 5, turnCubeHeight / 2, MAP_HEIGHT / 2);
+        turnCube1.transform.localScale = new Vector3(cubeHeight, turnCubeHeight, MAP_HEIGHT + 2*lateralEdge + 2* cubeHeight);
+        
+
+        GameObject turnCube2 = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        turnCube2.name = "TurnCube2";
+
+        turnCube2.transform.position = new Vector3(-5, turnCubeHeight/2 , MAP_HEIGHT / 2);
+        turnCube2.transform.localScale = new Vector3(cubeHeight, turnCubeHeight, MAP_HEIGHT + 2 * lateralEdge + 2 * cubeHeight);
+        
+
+        GameObject turnText1 = new GameObject();
+        GameObject turnText2 = new GameObject();
+
+        turnText1.name = "TurnText1";
+        turnText2.name = "TurnText2";
+
+        turnText1.AddComponent<TextMesh>();
+        turnText1.GetComponent<TextMesh>().text = "P1 TURN";
+        turnText2.AddComponent<TextMesh>();
+        turnText2.GetComponent<TextMesh>().text = "P1 TURN";
+
+
+        turnText1.transform.position = new Vector3(MAP_WIDTH + lateralEdge, (turnCubeHeight / 2) + 1, (MAP_HEIGHT / 2) + 5.5f);
+        turnText2.transform.position = new Vector3(-lateralEdge, (turnCubeHeight / 2) + 1, (MAP_HEIGHT / 2) - 5.5f);
+        turnText1.transform.Rotate(0, 90, 0);
+        turnText2.transform.Rotate(0, -90, 0);
+
+        turnText1.transform.localScale = new Vector3(2, 2, 1);
+        turnText2.transform.localScale = new Vector3(2, 2, 1);
+
+        turnText1.GetComponent<TextMesh>().color = new Vector4(1, 1, 1, 1);
+        turnText2.GetComponent<TextMesh>().color = new Vector4(1, 1, 1, 1);
+
+        turnCube1.GetComponent<Renderer>().material = Resources.Load("River", typeof(Material)) as Material;
+        turnCube2.GetComponent<Renderer>().material = Resources.Load("River", typeof(Material)) as Material;
+
     }
 
     //Helper that tracks the mouse position and stores it at selectionX/Y 

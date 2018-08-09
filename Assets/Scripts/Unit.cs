@@ -17,7 +17,10 @@ public class Unit : MonoBehaviour {
     public int BaseDefense;
     public int BaseRange;
     public int BaseVision;
+    public int HitPoints;
     public int ActionsRemaining;
+
+    public GameObject GameUnit;
 
     
     public List<Casilla> ReachableSquares;
