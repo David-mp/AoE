@@ -19,13 +19,17 @@ public class Unit : MonoBehaviour {
     public int BaseVision;
     public int HitPoints;
     public int ActionsRemaining;
-
     public GameObject GameUnit;
 
     
     public List<Casilla> ReachableSquares;
     public List<Casilla> CasillasInspeccionadas;
+    public Dictionary<Casilla, Casilla> Path;
+
+    public List<Casilla> VisionSquares;
     public int[,] RemainingMove = new int[MapManager.MAP_WIDTH, MapManager.MAP_HEIGHT];
+
+    
 
     public void SetPosition(int x, int y)
     {

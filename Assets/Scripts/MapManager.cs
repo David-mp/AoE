@@ -59,14 +59,14 @@ public class MapManager : MonoBehaviour
     private const float TILE_OFFSET = 0.5f;
 
     //Map size, it can be adjusted to the player's preferences
-    public const int MAP_WIDTH = 16;
-    public const int MAP_HEIGHT = 16;
+    public const int MAP_WIDTH = 10;
+    public const int MAP_HEIGHT = 10;
 
     private int selectionX = -1;
     private int selectionY = -1;
 
     //Terrain variable, it has all the terrain info, and it doesn't change over the time
-    public static Casilla[,] casillas;
+    public static Casilla[,] Casillas;
     //Unit variable, it collects where all the units are at any moment
     public Unit[,] Units;
 
@@ -74,14 +74,18 @@ public class MapManager : MonoBehaviour
     public List<Unit> UnitsP1;
     public List<Unit> UnitsP2;
 
+    //List of squares that have been scouted in the game. The player will recognize the type of terrain on those, but will not know if there is an enemy unit unless there is a unit in vision range
+    public List<Casilla> VisitedSquaresP1;
+    public List<Casilla> VisitedSquaresP2;
+
 
     public Unit SelectedUnit;
 
     //1 = blue, 2 = red...
     public int PlayerTurn = 1;
 
+    Dictionary<string, string> myDic;
 
-    
 
 
     //UnitPrefabs contains every unitPrefab needed. It has to be initializated manually with Unity UI.
@@ -93,43 +97,51 @@ public class MapManager : MonoBehaviour
 
     void Start()
     {
-        casillas = new Casilla[MAP_WIDTH, MAP_HEIGHT];
+        Casillas = new Casilla[MAP_WIDTH, MAP_HEIGHT];
 
-        //Create a Plane for Collisions
+        //Create a Plane for Collisions and fog of war
         GameObject Plane = GameObject.CreatePrimitive(PrimitiveType.Plane);
 
         Plane.transform.SetParent(GameObject.Find("Map").transform);
 
-        Plane.transform.position = new Vector3(MAP_WIDTH / 2, 0, MAP_HEIGHT / 2);
-
+        Plane.transform.position = new Vector3(MAP_WIDTH / 2, -0.05f, MAP_HEIGHT / 2);
+        
         float scalex = (float)MAP_WIDTH / 10;
         float scaley = (float)MAP_HEIGHT / 10;
         Plane.transform.localScale = new Vector3(scalex, 0, scaley);
 
         Destroy(Plane.GetComponent<MeshCollider>());
         Plane.AddComponent<BoxCollider>();
-        Plane.GetComponent<MeshRenderer>().enabled = false;
         //Sets the layer number 9, "MapPlane" for the Plane
         Plane.layer = 9;
 
-
         SetUpPrefabs();
 
-        //Crear casillas y colocarlas correctamente
+        //Create every Quad and place them correctly
         for (int i = 0; i < MAP_WIDTH; i++)
         {
             for (int j = 0; j < MAP_HEIGHT; j++)
             {
-                    casillas[i, j].Quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
-                    casillas[i, j].Quad.transform.Rotate(90, 0, 0);
-                    casillas[i, j].Quad.transform.position = new Vector3(i + TILE_OFFSET, 0, j + TILE_OFFSET);
-                    casillas[i, j].Quad.transform.parent = GameObject.Find("Map").transform;
+                    Casillas[i, j].Quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                    Casillas[i, j].Quad.transform.Rotate(90, 0, 0);
+                    Casillas[i, j].Quad.transform.position = new Vector3(i + TILE_OFFSET, 0, j + TILE_OFFSET);
+                    Casillas[i, j].Quad.transform.parent = GameObject.Find("Map").transform;
             }
         }
 
         SetCasillasProperties();
+
+        //Unit setup
         SpawnAllUnits();
-        CreateCheers();
+
+        //Scenery setup
+        CreateScenery();
+
+        //Vision setup
+        PaintBlack();
+        PaintOwnUnits();
+        PaintFog();
+        PaintVision();
     }
    
 
@@ -138,6 +150,9 @@ public class MapManager : MonoBehaviour
     {
         UpdateSelection();
         DrawMap();
+
+
+        //Here below, there are all the user interactions
 
         //Select a Unit/Move
         if (Input.GetMouseButtonDown(0))
@@ -156,13 +171,31 @@ public class MapManager : MonoBehaviour
                     {
                         MoveUnit(selectionX, selectionY);
                     } else
-                    { //Clicked on a enemy unit, it is an attack move
-                        if(Units[selectionX, selectionY].Player != PlayerTurn && PossibleMove(SelectedUnit, selectionX, selectionY, 2))
+                    { //Clicked on a enemy unit
+                        if((Units[selectionX, selectionY].Player != PlayerTurn))
                         {
-                            Battle(SelectedUnit, Units[selectionX, selectionY]);
+                            //If the unit is visible, the attacker intended to attack that unit. If that is possible, attack it
+                            if(IsVisible(Units[selectionX, selectionY]))
+                            {
+                                if (PossibleMove(SelectedUnit, selectionX, selectionY, 2))
+                                {
+                                    Battle(SelectedUnit, Units[selectionX, selectionY]);
+                                } 
+                                
+                                
+                            } else
+                            //The enemy unit was unspotted for the attacker, so he just wanted to move in that direction
+                            {
+                                if(PossibleMove(SelectedUnit, selectionX, selectionY, 1))
+                                {
+                                    Debug.Log("UNIDAD ESCONDIDA PILLIN, TE VAS A METER EN UN LIO POR GLITCHER");
+                                    Casilla destiny = SelectedUnit.Path[Casillas[selectionX, selectionY]];
+                                    MoveUnit(destiny.x, destiny.y);
+                                }
+                                
+                            }
                         }
-                    }
-                        
+                    }   
                 }
             }
         }
@@ -171,6 +204,7 @@ public class MapManager : MonoBehaviour
         if (Input.GetMouseButtonDown(1))
         {
             EndTurn();
+            
         }
 
         //Jump into the next unit
@@ -180,6 +214,7 @@ public class MapManager : MonoBehaviour
         }
     }
 
+    //Active a SelectedUnit to interact with
     private void SelectUnit(int x, int y)
     {
         //Clicked on terrain - canceled
@@ -196,6 +231,7 @@ public class MapManager : MonoBehaviour
 
     }
 
+    //Moves the selected unit to the position (x,y)
     private void MoveUnit(int x, int y)
     {
         if (PossibleMove(SelectedUnit, x, y, 1))
@@ -206,42 +242,47 @@ public class MapManager : MonoBehaviour
             Units[x, y] = SelectedUnit;
             Units[x, y].CurrentX = x;
             Units[x, y].CurrentY = y;
-            SelectedUnit.ActionsRemaining--;
+            Units[x, y].ActionsRemaining--;
 
-            //Remove the old Squarepool and calculate it again at the new position
-            SelectedUnit.ReachableSquares.RemoveRange(0, SelectedUnit.ReachableSquares.Count);
-            SelectedUnit.CasillasInspeccionadas.RemoveRange(0, SelectedUnit.CasillasInspeccionadas.Count);
-            GetReachableSquares(SelectedUnit);
+            //Remove the old Square pool and calculate it again at the new position
+            Units[x, y].ReachableSquares.RemoveRange(0, Units[x, y].ReachableSquares.Count);
+            Units[x, y].CasillasInspeccionadas.RemoveRange(0, Units[x, y].CasillasInspeccionadas.Count);
+            Units[x, y].VisionSquares.RemoveRange(0, Units[x, y].VisionSquares.Count);
+            Units[x, y].Path.Clear();
+            GetReachableSquares(Units[x, y], 1);
+            GetReachableSquares(Units[x, y], 2);
+
+            //Update the unit vision
+            PaintFog();
+            UnpaintEnemies();
+            PaintVision();
         }
         SelectedUnit = null;
 
     }
 
+    //Battle between two units. First, the attacker attacks, and then, if the defender is able to retaliate, their remaining units will retaliate
     private void Battle(Unit attacker, Unit defender)
     {
         //First, we calculate the unit's stats for the incoming battle (Terrain modificator, type bonusses, unit buffs...) 
         //This way, these bonusses will expire and the unit will no longer maintain them
         //Attacker stats
-        int AttackStatA = (int)(attacker.BaseAttack * (1 + casillas[attacker.CurrentX,attacker.CurrentY].AttackAdaptor));
-        int DefenseStatA = (int)(attacker.BaseDefense * (1 + casillas[attacker.CurrentX, attacker.CurrentY].DefenseAdaptor)); 
-        int HitPointsRemainingA = attacker.HitPoints;
-
+        int AttackStatA = (int)(attacker.BaseAttack * (1 + Casillas[attacker.CurrentX,attacker.CurrentY].AttackAdaptor));
+        int DefenseStatA = (int)(attacker.BaseDefense * (1 + Casillas[attacker.CurrentX, attacker.CurrentY].DefenseAdaptor)); 
+        
         //Defender stats
-        int AttackStatD = (int)(defender.BaseAttack * (1 + casillas[defender.CurrentX, attacker.CurrentY].AttackAdaptor));
-        int DefenseStatD = (int)(defender.BaseDefense * (1 + casillas[defender.CurrentX, attacker.CurrentY].DefenseAdaptor));
-        int HitPointsRemainingD = defender.HitPoints;
-
+        int AttackStatD = (int)(defender.BaseAttack * (1 + Casillas[defender.CurrentX, attacker.CurrentY].AttackAdaptor));
+        int DefenseStatD = (int)(defender.BaseDefense * (1 + Casillas[defender.CurrentX, attacker.CurrentY].DefenseAdaptor));
 
         //Now, the attacker will attack the oponent
-        Debug.Log("Ataque:" + AttackStatA + "   --Defensa:" + DefenseStatD + "   --HpAt:" + HitPointsRemainingA + "  --HpD:" + HitPointsRemainingD);
-        defender.HitPoints = Fight(AttackStatA, DefenseStatD, HitPointsRemainingA, HitPointsRemainingD);
+        Debug.Log("Ataque:" + AttackStatA + "   --Defensa:" + DefenseStatD + "   --HpAt:" + attacker.HitPoints + "  --HpD:" + defender.HitPoints);
+        defender.HitPoints = Fight(AttackStatA, DefenseStatD, attacker.HitPoints, defender.HitPoints);
 
-        Debug.Log("Defender RemainingHP:" + defender.HitPoints);
-       
-       
-        //If the oponent survives and it is in attack range, it will retaliate. Otherwise, it is killed
-        
-        if(defender.HitPoints <= 0)
+        Debug.Log("BATTLE RESULT:  " + "--HpAt:" + attacker.HitPoints + "  --HpD:" + defender.HitPoints);
+
+
+        //If the oponent survives and is in attack range, it will retaliate. Otherwise, it is killed
+        if (defender.HitPoints <= 0)
         {
             KillUnit(defender);
         } else
@@ -249,20 +290,19 @@ public class MapManager : MonoBehaviour
             if(PossibleMove(defender, attacker.CurrentX, attacker.CurrentY, 2))
             {
                 Debug.Log("The defender retaliates!! ");
-                Debug.Log("Ataque:" + AttackStatD + "   --Defensa:" + DefenseStatA + "   --HpAt:" + HitPointsRemainingD + "  --HpD:" + HitPointsRemainingA);
-                attacker.HitPoints = Fight(AttackStatD, DefenseStatA, HitPointsRemainingD, HitPointsRemainingA);
-                Debug.Log("Attacker RemainingHP:" + attacker.HitPoints);
+                Debug.Log("Ataque:" + AttackStatD + "   --Defensa:" + DefenseStatA + "   --HpAt:" + defender.HitPoints + "  --HpD:" + attacker.HitPoints);
+                attacker.HitPoints = Fight(AttackStatD, DefenseStatA, defender.HitPoints, attacker.HitPoints);
+                Debug.Log("BATTLE RESULT:  " +  "--HpAt:" + attacker.HitPoints + "  --HpD:" + defender.HitPoints);
 
                 if (attacker.HitPoints <= 0)
                 {
                     KillUnit(attacker);
                 }
             }
-
         }
 
+        SelectedUnit = null;
         attacker.ActionsRemaining = 0;
-
     }
 
     //Fight rule: Every hitpoint of the attacker unit will cause 1hitpoint damage to the defender if the attacker doubles the defender's defense
@@ -276,41 +316,7 @@ public class MapManager : MonoBehaviour
         return hpD;
     }
 
-    private void CameraOnNextUnit(int turn)
-    {
-        switch (turn)
-        {
-            case 1:
-                foreach (Unit u in UnitsP1)
-                {
-                    if (u.ActionsRemaining != 0)
-                    {
-                        Camera.main.transform.position = new Vector3(u.CurrentX, 5, u.CurrentY - 1);
-                        Camera.main.transform.eulerAngles = new Vector3(50, 0, 0);
-                        return;
-                    }
-                }
-                break;
-            case 2:
-                foreach (Unit u in UnitsP2)
-                {
-                    if (u.ActionsRemaining != 0)
-                    {
-                        Camera.main.transform.position = new Vector3(u.CurrentX, 5, u.CurrentY + 3);
-                        Camera.main.transform.eulerAngles = new Vector3(130, 0, 180);
-                        return;
-                    }
-                }
-                break;
-            default:
-                break;
-        }
-
-        //No more units, Job's done!
-        GameObject.Find("Main Camera").GetComponent<AudioSource>().Play();
-
-    }
-
+    //Draw all the cursor interactions
     private void DrawMap()
     {
         Vector3 widthLine = Vector3.right * MAP_WIDTH;
@@ -340,6 +346,14 @@ public class MapManager : MonoBehaviour
             Debug.DrawLine(
                 Vector3.forward * (selectionY + 1) + Vector3.right * selectionX,
                 Vector3.forward * selectionY + Vector3.right * (selectionX + 1));
+
+            Debug.DrawLine(
+                Vector3.forward * (selectionY + 0.5f) + Vector3.right * selectionX,
+                Vector3.forward * (selectionY + 0.5f) + Vector3.right * (selectionX + 1));
+
+            Debug.DrawLine(
+                Vector3.forward * selectionY  + Vector3.right * (selectionX + 0.5f),
+                Vector3.forward * (selectionY + 1) + Vector3.right * (selectionX + 0.5f));
         }
 
         //Draw PossibleMoves
@@ -367,81 +381,81 @@ public class MapManager : MonoBehaviour
                 if (0 <= a && a < 1)
                 {
                     newMat = Resources.Load("Forest", typeof(Material)) as Material;
-                    casillas[i, j].Quad.GetComponent<Renderer>().material = newMat;
-                    casillas[i, j].Type = "Forest";
-                    casillas[i, j].x = i;
-                    casillas[i, j].y = j;
-                    casillas[i, j].RangeAdaptor = -1;
-                    casillas[i, j].AttackAdaptor = -0.1f;
-                    casillas[i, j].DefenseAdaptor = 0.2f;
-                    casillas[i, j].MovementCost = 3;
-                    casillas[i, j].VisionCost = 5;
+                    Casillas[i, j].Quad.GetComponent<Renderer>().material = newMat;
+                    Casillas[i, j].Type = "Forest";
+                    Casillas[i, j].x = i;
+                    Casillas[i, j].y = j;
+                    Casillas[i, j].RangeAdaptor = -1;
+                    Casillas[i, j].AttackAdaptor = -0.1f;
+                    Casillas[i, j].DefenseAdaptor = 0.2f;
+                    Casillas[i, j].MovementCost = 3;
+                    Casillas[i, j].VisionCost = 5;
 
                 }
                 if (1 <= a && a < 2)
                 {
                     newMat = Resources.Load("Hill", typeof(Material)) as Material;
-                    casillas[i, j].Quad.GetComponent<Renderer>().material = newMat;
-                    casillas[i, j].Type = "Hill";
-                    casillas[i, j].x = i;
-                    casillas[i, j].y = j;
-                    casillas[i, j].RangeAdaptor = 1;
-                    casillas[i, j].AttackAdaptor = 0.0f;
-                    casillas[i, j].DefenseAdaptor = 0.2f;
-                    casillas[i, j].MovementCost = 3;
-                    casillas[i, j].VisionCost = 4;
+                    Casillas[i, j].Quad.GetComponent<Renderer>().material = newMat;
+                    Casillas[i, j].Type = "Hill";
+                    Casillas[i, j].x = i;
+                    Casillas[i, j].y = j;
+                    Casillas[i, j].RangeAdaptor = 1;
+                    Casillas[i, j].AttackAdaptor = 0.0f;
+                    Casillas[i, j].DefenseAdaptor = 0.2f;
+                    Casillas[i, j].MovementCost = 3;
+                    Casillas[i, j].VisionCost = 4;
                 }
                 if (2 <= a && a < 3)
                 {
                     newMat = Resources.Load("Meadow", typeof(Material)) as Material;
-                    casillas[i, j].Quad.GetComponent<Renderer>().material = newMat;
-                    casillas[i, j].Type = "Meadow";
-                    casillas[i, j].x = i;
-                    casillas[i, j].y = j;
-                    casillas[i, j].RangeAdaptor = 0;
-                    casillas[i, j].AttackAdaptor = 0.2f;
-                    casillas[i, j].DefenseAdaptor = 0.0f;
-                    casillas[i, j].MovementCost = 2;
-                    casillas[i, j].VisionCost = 3;
+                    Casillas[i, j].Quad.GetComponent<Renderer>().material = newMat;
+                    Casillas[i, j].Type = "Meadow";
+                    Casillas[i, j].x = i;
+                    Casillas[i, j].y = j;
+                    Casillas[i, j].RangeAdaptor = 0;
+                    Casillas[i, j].AttackAdaptor = 0.2f;
+                    Casillas[i, j].DefenseAdaptor = 0.0f;
+                    Casillas[i, j].MovementCost = 2;
+                    Casillas[i, j].VisionCost = 3;
                 }
                 if (3 <= a && a < 4)
                 {
                     newMat = Resources.Load("Mountain", typeof(Material)) as Material;
-                    casillas[i, j].Quad.GetComponent<Renderer>().material = newMat;
-                    casillas[i, j].Type = "Mountain";
-                    casillas[i, j].x = i;
-                    casillas[i, j].y = j;
-                    casillas[i, j].RangeAdaptor = 1;
-                    casillas[i, j].AttackAdaptor = 0.1f;
-                    casillas[i, j].DefenseAdaptor = 0.2f;
-                    casillas[i, j].MovementCost = 4;
-                    casillas[i, j].VisionCost = 2;
+                    Casillas[i, j].Quad.GetComponent<Renderer>().material = newMat;
+                    Casillas[i, j].Type = "Mountain";
+                    Casillas[i, j].x = i;
+                    Casillas[i, j].y = j;
+                    Casillas[i, j].RangeAdaptor = 1;
+                    Casillas[i, j].AttackAdaptor = 0.1f;
+                    Casillas[i, j].DefenseAdaptor = 0.2f;
+                    Casillas[i, j].MovementCost = 4;
+                    Casillas[i, j].VisionCost = 2;
                 }
                 if (4 <= a && a < 5)
                 {
                     newMat = Resources.Load("Trail", typeof(Material)) as Material;
-                    casillas[i, j].Quad.GetComponent<Renderer>().material = newMat;
-                    casillas[i, j].Type = "Trail";
-                    casillas[i, j].x = i;
-                    casillas[i, j].y = j;
-                    casillas[i, j].RangeAdaptor = 0;
-                    casillas[i, j].AttackAdaptor = 0.0f;
-                    casillas[i, j].DefenseAdaptor = 0.0f;
-                    casillas[i, j].MovementCost = 1;
-                    casillas[i, j].VisionCost = 2;
+                    Casillas[i, j].Quad.GetComponent<Renderer>().material = newMat;
+                    Casillas[i, j].Type = "Trail";
+                    Casillas[i, j].x = i;
+                    Casillas[i, j].y = j;
+                    Casillas[i, j].RangeAdaptor = 0;
+                    Casillas[i, j].AttackAdaptor = 0.0f;
+                    Casillas[i, j].DefenseAdaptor = 0.0f;
+                    Casillas[i, j].MovementCost = 1;
+                    Casillas[i, j].VisionCost = 2;
                 }
                 if (5 <= a && a <= 5.3f)
                 {
                     newMat = Resources.Load("River", typeof(Material)) as Material;
-                    casillas[i, j].Quad.GetComponent<Renderer>().material = newMat;
-                    casillas[i, j].Type = "River";
-                    casillas[i, j].x = i;
-                    casillas[i, j].y = j;
-                    casillas[i, j].RangeAdaptor = 0;
-                    casillas[i, j].AttackAdaptor = 0.0f;
-                    casillas[i, j].DefenseAdaptor = 0.0f;
-                    casillas[i, j].MovementCost = 50;
-                    casillas[i, j].VisionCost = 3;
+                    Casillas[i, j].Quad.GetComponent<Renderer>().material = newMat;
+                    Casillas[i, j].Type = "River";
+                    Casillas[i, j].x = i;
+                    Casillas[i, j].y = j;
+                    Casillas[i, j].RangeAdaptor = 0;
+                    Casillas[i, j].AttackAdaptor = 0.0f;
+                    Casillas[i, j].DefenseAdaptor = 0.0f;
+                    Casillas[i, j].MovementCost = 50;
+                    Casillas[i, j].VisionCost = 3;
                 }
             }
 
@@ -485,6 +499,8 @@ public class MapManager : MonoBehaviour
         Units = new Unit[MAP_WIDTH, MAP_HEIGHT];
         UnitsP1 = new List<Unit>();
         UnitsP2 = new List<Unit>();
+        VisitedSquaresP1 = new List<Casilla>();
+        VisitedSquaresP2 = new List<Casilla>();
 
 
         //Spawn the blue team
@@ -496,10 +512,10 @@ public class MapManager : MonoBehaviour
 
 
         //Spawn the red team
-        SpawnUnits(4, 3, 15);
-        SpawnUnits(5, 3, 12);
-        SpawnUnits(6, 5, 12);
-        SpawnUnits(7, 7, 15);
+        SpawnUnits(4, 3, 9);
+        SpawnUnits(5, 3, 6);
+        SpawnUnits(6, 5, 6);
+        SpawnUnits(7, 7, 9);
 
     }
 
@@ -525,49 +541,57 @@ public class MapManager : MonoBehaviour
             case 0:
                 FillUnitProperties(Units[x, y], "SiegeBallista", "Siege", 1, 7, 300, 200, 3, 8, 1);
 
-                GetReachableSquares(Units[x, y]);
+                GetReachableSquares(Units[x, y], 1);
+                GetReachableSquares(Units[x, y], 2);
                 UnitsP1.Add(Units[x, y]);
                 break;
             case 1:
                 FillUnitProperties(Units[x, y], "SiegeCatapult", "Siege", 1, 7, 300, 200, 3, 8, 1);
 
-                GetReachableSquares(Units[x, y]);
+                GetReachableSquares(Units[x, y], 1);
+                GetReachableSquares(Units[x, y], 2);
                 UnitsP1.Add(Units[x, y]);
                 break;
             case 2:
                 FillUnitProperties(Units[x, y], "SiegeRam", "Siege", 1, 7, 300, 200, 3, 8, 1);
 
-                GetReachableSquares(Units[x, y]);
+                GetReachableSquares(Units[x, y], 1);
+                GetReachableSquares(Units[x, y], 2);
                 UnitsP1.Add(Units[x, y]);
                 break;
             case 3:
                 FillUnitProperties(Units[x, y], "SiegeBallista", "Siege", 1, 7, 300, 200, 3, 8, 1);
 
-                GetReachableSquares(Units[x, y]);
+                GetReachableSquares(Units[x, y], 1);
+                GetReachableSquares(Units[x, y], 2);
                 UnitsP1.Add(Units[x, y]);
                 break;
             case 4:
                 FillUnitProperties(Units[x, y], "SiegeBallista", "Siege", 2, 7, 300, 200, 3, 8, 1);
 
-                GetReachableSquares(Units[x, y]);
+                GetReachableSquares(Units[x, y], 1);
+                GetReachableSquares(Units[x, y], 2);
                 UnitsP2.Add(Units[x, y]);
                 break;
             case 5:
                 FillUnitProperties(Units[x, y], "SiegeCatapult", "Siege", 2, 7, 300, 200, 3, 8, 1);
 
-                GetReachableSquares(Units[x, y]);
+                GetReachableSquares(Units[x, y], 1);
+                GetReachableSquares(Units[x, y], 2);
                 UnitsP2.Add(Units[x, y]);
                 break;
             case 6:
                 FillUnitProperties(Units[x, y], "SiegeRam", "Siege", 2, 7, 300, 200, 3, 8, 1);
 
-                GetReachableSquares(Units[x, y]);
+                GetReachableSquares(Units[x, y], 1);
+                GetReachableSquares(Units[x, y], 2);
                 UnitsP2.Add(Units[x, y]);
                 break;
             case 7:
                 FillUnitProperties(Units[x, y], "SiegeTrebuchet", "Siege", 2, 7, 300, 200, 3, 8, 1);
 
-                GetReachableSquares(Units[x, y]);
+                GetReachableSquares(Units[x, y], 1);
+                GetReachableSquares(Units[x, y], 2);
                 UnitsP2.Add(Units[x, y]);
                 break;
 
@@ -593,6 +617,8 @@ public class MapManager : MonoBehaviour
         unit.HitPoints = 100;
         unit.ReachableSquares = new List<Casilla>();
         unit.CasillasInspeccionadas = new List<Casilla>();
+        unit.VisionSquares = new List<Casilla>();
+        unit.Path = new Dictionary<Casilla, Casilla>();
     }
 
     //Remove a unit from the game
@@ -637,15 +663,22 @@ public class MapManager : MonoBehaviour
 
     }
 
-    //Algorithm that fills the ReachableSquares List of a unit
-    private void GetReachableSquares(Unit unit)
+    //Algorithm that fills the ReachableSquares List of a unit. It can be called for getting the squares in vision range or in movement range
+    private void GetReachableSquares(Unit unit, int mode)
     {
         //A copy of ReachableSquares is necesary because you cannot iterate a collection that is changing inside the foreach loop
         List<Casilla> ReachableCopy = new List<Casilla>();
+        
+        if (mode == 1)
+        {
+            unit.RemainingMove[unit.CurrentX, unit.CurrentY] = unit.Movement;
+        }
+        if(mode == 2)
+        {
+            unit.RemainingMove[unit.CurrentX, unit.CurrentY] = unit.BaseVision;
+        }
 
-        unit.RemainingMove[unit.CurrentX, unit.CurrentY] = unit.Movement;
-
-        unit.ReachableSquares.Add(casillas[unit.CurrentX, unit.CurrentY]);
+        unit.ReachableSquares.Add(Casillas[unit.CurrentX, unit.CurrentY]);
 
 
         while (unit.ReachableSquares.Count > 0)
@@ -654,35 +687,41 @@ public class MapManager : MonoBehaviour
             ReachableCopy.RemoveRange(0, ReachableCopy.Count);
             ReachableCopy = unit.ReachableSquares.GetRange(0, unit.ReachableSquares.Count);
 
-            #if print
+#if print
             Debug.Log("Reachable: " + unit.ReachableSquares.Count + "  --- Inspeccionadas: " + unit.CasillasInspeccionadas.Count);
-            #endif
+#endif
             foreach (Casilla c in ReachableCopy)
             {
-                //Inside the loop, we only modify the original List, which is what matters
-                GetAdjacent(unit, c.x, c.y, unit.RemainingMove[c.x, c.y]);
-            
+                //Inside the loop, we only modify the original List
+                if(mode == 1)
+                {
+                    GetAdjacent(unit, c.x, c.y, unit.RemainingMove[c.x, c.y]);
+                }
+                if(mode == 2)
+                {
+                    GetAdjacentVision(unit, c.x, c.y, unit.RemainingMove[c.x, c.y]);
+                }
             }
         }
     }
 
     //Helper of GetReachableSquares. Inspect the 4 Adjacent squares to the x,y square
-    private void GetAdjacent(Unit unit, int x, int y, int movement)
+    private void GetAdjacentVision(Unit unit, int x, int y, int vision)
     {
 
         //First, we check if the adjacent square is outside of the map. 
-        //Then, if we haven't already evaluated that square and if the unit can reach the terrain with its remaining movement
+        //Then, if we haven't already evaluated that square and if the unit can see the terrain with its remaining vision points
         //x,y+1 
         if (y != (MAP_HEIGHT - 1))
         {
-            if (!unit.CasillasInspeccionadas.Contains(casillas[x, y + 1]) && casillas[x, y + 1].MovementCost <= movement)
+            if (!unit.VisionSquares.Contains(Casillas[x, y + 1]) && Casillas[x, y + 1].VisionCost <= vision)
             {
-                #if print
+#if print
                 Debug.Log("Coste de casilla x,y+1: [" + x + "," + (y + 1) + "] - " + casillas[x, y + 1].MovementCost);
-                #endif
-                
-                unit.ReachableSquares.Add(casillas[x, y + 1]);
-                unit.RemainingMove[x, y + 1] = movement - casillas[x, y + 1].MovementCost;
+#endif
+
+                unit.ReachableSquares.Add(Casillas[x, y + 1]);
+                unit.RemainingMove[x, y + 1] = vision - Casillas[x, y + 1].VisionCost;
             }
         }
 
@@ -690,13 +729,13 @@ public class MapManager : MonoBehaviour
         if (y != 0)
         {
 
-            if (!unit.CasillasInspeccionadas.Contains(casillas[x, y - 1]) && casillas[x, y - 1].MovementCost <= movement)
+            if (!unit.VisionSquares.Contains(Casillas[x, y - 1]) && Casillas[x, y - 1].VisionCost <= vision)
             {
-                #if print
+#if print
                 Debug.Log("Coste de casilla x,y-1: [" + x + "," + (y - 1) + "] - " + casillas[x, y - 1].MovementCost);
-                #endif
-                unit.ReachableSquares.Add(casillas[x, y - 1]);
-                unit.RemainingMove[x, y - 1] = movement - casillas[x, y - 1].MovementCost;
+#endif
+                unit.ReachableSquares.Add(Casillas[x, y - 1]);
+                unit.RemainingMove[x, y - 1] = vision - Casillas[x, y - 1].VisionCost;
             }
         }
 
@@ -704,13 +743,13 @@ public class MapManager : MonoBehaviour
         //x+1,y
         if (x != (MAP_WIDTH - 1))
         {
-            if (!unit.CasillasInspeccionadas.Contains(casillas[x + 1, y]) && casillas[x + 1, y].MovementCost <= movement)
+            if (!unit.VisionSquares.Contains(Casillas[x + 1, y]) && Casillas[x + 1, y].VisionCost <= vision)
             {
-                #if print
+#if print
                 Debug.Log("Coste de casilla x+1,y: [" + (x + 1) + "," + y + "] - " + casillas[x + 1, y].MovementCost);            
-                #endif
-                unit.ReachableSquares.Add(casillas[x + 1, y]);
-                unit.RemainingMove[x + 1, y] = movement - casillas[x + 1, y].MovementCost;
+#endif
+                unit.ReachableSquares.Add(Casillas[x + 1, y]);
+                unit.RemainingMove[x + 1, y] = vision - Casillas[x + 1, y].VisionCost;
             }
         }
 
@@ -718,19 +757,133 @@ public class MapManager : MonoBehaviour
         //x-1,y
         if (x != 0)
         {
-            if (!unit.CasillasInspeccionadas.Contains(casillas[x - 1, y]) && casillas[x - 1, y].MovementCost <= movement)
+            if (!unit.VisionSquares.Contains(Casillas[x - 1, y]) && Casillas[x - 1, y].VisionCost <= vision)
             {
-                #if print
+#if print
                 Debug.Log("Coste de casilla x-1,y: [" + (x - 1) + "," + y + "] - " + casillas[x - 1, y].MovementCost);
-                #endif
-                unit.ReachableSquares.Add(casillas[x - 1, y]);
-                unit.RemainingMove[x - 1, y] = movement - casillas[x - 1, y].MovementCost;
+#endif
+                unit.ReachableSquares.Add(Casillas[x - 1, y]);
+                unit.RemainingMove[x - 1, y] = vision - Casillas[x - 1, y].VisionCost;
             }
         }
 
 
-        unit.CasillasInspeccionadas.Add(casillas[x, y]);
-        unit.ReachableSquares.Remove(casillas[x, y]);
+        unit.VisionSquares.Add(Casillas[x, y]);
+        unit.ReachableSquares.Remove(Casillas[x, y]);
+        //Add the Square to the visitedSquares List of the player, so it is visible until the end of the game
+        if(unit.Player == 1)
+        {
+            VisitedSquaresP1.Add(Casillas[x, y]);
+        }
+        if (unit.Player == 2)
+        {
+            VisitedSquaresP2.Add(Casillas[x, y]);
+        }
+
+    }
+
+    //Helper of GetReachableSquares. Inspect the 4 Adjacent squares to the x,y square
+    private void GetAdjacent(Unit unit, int x, int y, int movement)
+    {
+
+        //First, we check if the adjacent square is outside of the map. 
+        //Then, if we haven't already evaluated that square and if the unit can reach the terrain with its remaining movement points
+        //x,y+1 
+        if (y != (MAP_HEIGHT - 1))
+        {
+            if (!unit.CasillasInspeccionadas.Contains(Casillas[x, y + 1]) && Casillas[x, y + 1].MovementCost <= movement && !EnemyThere(unit, x, y))
+            {
+                #if print
+                Debug.Log("Coste de casilla x,y+1: [" + x + "," + (y + 1) + "] - " + casillas[x, y + 1].MovementCost);
+                #endif
+                
+                unit.ReachableSquares.Add(Casillas[x, y + 1]);
+                unit.RemainingMove[x, y + 1] = movement - Casillas[x, y + 1].MovementCost;
+
+                //Save the Path followed to reach that square
+                if (!unit.Path.ContainsKey(Casillas[x, y + 1]))
+                {
+                    unit.Path.Add(Casillas[x, y + 1], Casillas[x, y]); 
+                }
+            }
+        }
+
+        //x,y-1
+        if (y != 0)
+        {
+
+            if (!unit.CasillasInspeccionadas.Contains(Casillas[x, y - 1]) && Casillas[x, y - 1].MovementCost <= movement && !EnemyThere(unit, x, y))
+            {
+                #if print
+                Debug.Log("Coste de casilla x,y-1: [" + x + "," + (y - 1) + "] - " + casillas[x, y - 1].MovementCost);
+                #endif
+                unit.ReachableSquares.Add(Casillas[x, y - 1]);
+                unit.RemainingMove[x, y - 1] = movement - Casillas[x, y - 1].MovementCost;
+
+                if (!unit.Path.ContainsKey(Casillas[x, y - 1]))
+                {
+                    unit.Path.Add(Casillas[x, y - 1], Casillas[x, y]);
+                }
+            }
+        }
+
+
+        //x+1,y
+        if (x != (MAP_WIDTH - 1))
+        {
+            if (!unit.CasillasInspeccionadas.Contains(Casillas[x + 1, y]) && Casillas[x + 1, y].MovementCost <= movement && !EnemyThere(unit, x, y))
+            {
+                #if print
+                Debug.Log("Coste de casilla x+1,y: [" + (x + 1) + "," + y + "] - " + casillas[x + 1, y].MovementCost);            
+                #endif
+                unit.ReachableSquares.Add(Casillas[x + 1, y]);
+                unit.RemainingMove[x + 1, y] = movement - Casillas[x + 1, y].MovementCost;
+
+                if (!unit.Path.ContainsKey(Casillas[x + 1, y]))
+                {
+                    unit.Path.Add(Casillas[x + 1, y], Casillas[x, y]);
+                }
+            }
+        }
+
+
+        //x-1,y
+        if (x != 0)
+        {
+            if (!unit.CasillasInspeccionadas.Contains(Casillas[x - 1, y]) && Casillas[x - 1, y].MovementCost <= movement && !EnemyThere(unit, x, y))
+            {
+                #if print
+                Debug.Log("Coste de casilla x-1,y: [" + (x - 1) + "," + y + "] - " + casillas[x - 1, y].MovementCost);
+                #endif
+                unit.ReachableSquares.Add(Casillas[x - 1, y]);
+                unit.RemainingMove[x - 1, y] = movement - Casillas[x - 1, y].MovementCost;
+
+                if (!unit.Path.ContainsKey(Casillas[x - 1, y]))
+                {
+                    unit.Path.Add(Casillas[x - 1, y], Casillas[x, y]);
+                }
+            }
+        }
+
+
+        unit.CasillasInspeccionadas.Add(Casillas[x, y]);
+        unit.ReachableSquares.Remove(Casillas[x, y]);
+    }
+
+    //Helper that returns if there is an enemy in that location
+    private bool EnemyThere(Unit unit, int x, int y)
+    {
+        if(Units[x,y] == null)
+        {
+            return false;
+        } else
+        {
+            if(Units[x,y].Player != unit.Player)
+            {
+                return true; ;
+            }
+            return false;
+        }
     }
 
     //Helper that Paints the possible moves when selecting a unit
@@ -757,14 +910,21 @@ public class MapManager : MonoBehaviour
         {
             //mode = 1 - The action is a move
             case 1:
-                if (unit.CasillasInspeccionadas.Contains(casillas[x, y]) && unit.ActionsRemaining != 0)
+                if (unit.CasillasInspeccionadas.Contains(Casillas[x, y]) && unit.ActionsRemaining != 0)
                     return true;
                 break;
 
             //mode = 2 - The action is an attack
             case 2:
-                //First, if the defender is in range
-                int attackerRange = unit.BaseRange + casillas[unit.CurrentX, unit.CurrentY].RangeAdaptor;
+                //First we check if the defender is visible. You cannot attack an invisible unit
+                if (!IsVisible(Units[x,y]))
+                {
+                    SelectedUnit = null;
+                    return false;
+                }
+
+                //Then, if the defender is in attack range
+                int attackerRange = unit.BaseRange + Casillas[unit.CurrentX, unit.CurrentY].RangeAdaptor;
                 int distance = Mathf.Abs(unit.CurrentX - x) + Mathf.Abs(unit.CurrentY - y);
                 
                 if(distance <= attackerRange)
@@ -779,6 +939,7 @@ public class MapManager : MonoBehaviour
                 Debug.Log("Wrong mode index at PossibleMove:" + mode);
                 break;
         }
+        SelectedUnit = null;
         return false;
     }
 
@@ -807,9 +968,15 @@ public class MapManager : MonoBehaviour
             GameObject.Find("TurnCube2").GetComponent<Renderer>().material = Resources.Load("Red", typeof(Material)) as Material;
             GameObject.Find("TurnText1").GetComponent<TextMesh>().text = "P2 TURN";
             GameObject.Find("TurnText2").GetComponent<TextMesh>().text = "P2 TURN";
-            
-            return;
 
+            //Update Vision
+            PaintBlack();
+            PaintOwnUnits();
+            PaintFog();
+            PaintVision();
+
+            SelectedUnit = null;
+            return;
 
         }
         if (PlayerTurn == 2)
@@ -834,12 +1001,264 @@ public class MapManager : MonoBehaviour
             GameObject.Find("TurnText1").GetComponent<TextMesh>().text = "P1 TURN";
             GameObject.Find("TurnText2").GetComponent<TextMesh>().text = "P1 TURN";
 
+            //Update Vision
+            PaintBlack();
+            PaintOwnUnits();
+            PaintFog();
+            PaintVision();
+
+            SelectedUnit = null;
             return;
+        }
+        
+
+    }
+
+    //Center the camera on your next unit available
+    private void CameraOnNextUnit(int turn)
+    {
+        switch (turn)
+        {
+            case 1:
+                foreach (Unit u in UnitsP1)
+                {
+                    if (u.ActionsRemaining != 0)
+                    {
+                        Camera.main.transform.position = new Vector3(u.CurrentX, 5, u.CurrentY - 1);
+                        Camera.main.transform.eulerAngles = new Vector3(50, 0, 0);
+                        return;
+                    }
+                }
+                break;
+            case 2:
+                foreach (Unit u in UnitsP2)
+                {
+                    if (u.ActionsRemaining != 0)
+                    {
+                        Camera.main.transform.position = new Vector3(u.CurrentX, 5, u.CurrentY + 3);
+                        Camera.main.transform.eulerAngles = new Vector3(130, 0, 180);
+                        return;
+                    }
+                }
+                break;
+            default:
+                break;
+        }
+
+        //No more units, Job's done!
+        GameObject.Find("Main Camera").GetComponent<AudioSource>().Play();
+
+    }
+
+    //Hide every Square and unit
+    private void PaintBlack()
+    {
+        for (int i = 0; i < MAP_WIDTH; i++)
+        {
+            for (int j = 0; j < MAP_HEIGHT; j++)
+            {
+                Casillas[i, j].Quad.GetComponent<MeshRenderer>().enabled = false;
+
+                if(Units[i,j] != null)
+                {
+                    foreach (Transform child in Units[i, j].GameUnit.transform)
+                    {
+                        child.GetComponent<MeshRenderer>().enabled = false;
+                    }
+                }
+            }
         }
     }
 
+    //Paint the terrain spotted by the player so far
+    private void PaintFog()
+    {
+        switch (PlayerTurn)
+        {
+            case 1:
+                foreach (Casilla c in VisitedSquaresP1)
+                {
+                    
+                    if (!c.Quad.GetComponent<MeshRenderer>().enabled)
+                    {
+                        c.Quad.GetComponent<MeshRenderer>().enabled = true;
+                    }
+                }
+                break;
+
+            case 2:
+                foreach (Casilla c in VisitedSquaresP2)
+                {
+                    if (!c.Quad.GetComponent<MeshRenderer>().enabled)
+                    {
+                        c.Quad.GetComponent<MeshRenderer>().enabled = true;
+                    }
+                }
+                break;
+            default:
+                break;
+
+        }
+    }
+
+    //Paint enemy units in vision range of the player
+    private void PaintVision()
+    {
+        switch (PlayerTurn)
+        {
+            case 1:
+                foreach (Unit u in UnitsP2)
+                {
+                    foreach (Unit up1 in UnitsP1)
+                    {
+                        if (up1.VisionSquares.Contains(Casillas[u.CurrentX,u.CurrentY]))
+                        {
+                            foreach (Transform child in u.GameUnit.transform)
+                            {
+                                if (!child.GetComponent<MeshRenderer>().enabled)
+                                {
+                                    child.GetComponent<MeshRenderer>().enabled = true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                break;
+
+            case 2:
+                foreach (Unit u in UnitsP1)
+                {
+                    foreach (Unit up2 in UnitsP2)
+                    {
+                        if (up2.VisionSquares.Contains(Casillas[u.CurrentX, u.CurrentY]))
+                        {
+                            foreach (Transform child in u.GameUnit.transform)
+                            {
+                                if (!child.GetComponent<MeshRenderer>().enabled)
+                                {
+                                    child.GetComponent<MeshRenderer>().enabled = true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    //Used after moving a unit. If a unit that is giving vision of an enemy is moved away, it will no longer provide that vision
+    private void UnpaintEnemies()
+    {
+        switch (PlayerTurn)
+        {
+            case 1:
+                foreach (Unit u in UnitsP2)
+                {
+                    foreach (Transform child in u.GameUnit.transform)
+                    {
+                        if (child.GetComponent<MeshRenderer>().enabled)
+                        {
+                            child.GetComponent<MeshRenderer>().enabled = false;
+                        }
+                    }
+                }
+
+                break;
+
+            case 2:
+                foreach (Unit u in UnitsP1)
+                {
+                    foreach (Transform child in u.GameUnit.transform)
+                    {
+                        if (child.GetComponent<MeshRenderer>().enabled)
+                        {
+                            child.GetComponent<MeshRenderer>().enabled = false;
+                        }
+                    }
+                }
+
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    //Prints the units of the player at the start of his turn
+    private void PaintOwnUnits()
+    {
+        switch (PlayerTurn)
+        {
+            case 1:
+
+                foreach (Unit u in UnitsP1)
+                {
+                    foreach (Transform child in u.GameUnit.transform)
+                    {
+                        if (!child.GetComponent<MeshRenderer>().enabled)
+                        {
+                            child.GetComponent<MeshRenderer>().enabled = true;
+                        }
+                    }
+                }
+
+                break;
+
+            case 2:
+                foreach (Unit u in UnitsP2)
+                {
+                    foreach (Transform child in u.GameUnit.transform)
+                    {
+                        if (!child.GetComponent<MeshRenderer>().enabled)
+                        {
+                            child.GetComponent<MeshRenderer>().enabled = true;
+                        }  
+                    }
+                }
+                break;
+
+            default:
+                break;
+        }
+        
+    }
+
+    //Helper that shows if a unit is visible by the enemy
+    private bool IsVisible(Unit unit)
+    {
+        switch (unit.Player)
+        {
+            case 1:
+                foreach (Unit u in UnitsP2)
+                {
+                    if (u.VisionSquares.Contains(Casillas[unit.CurrentX, unit.CurrentY]))
+                    {
+                        return true;
+                    }
+                }
+                break;
+            case 2:
+                foreach (Unit u in UnitsP1)
+                {
+                    if (u.VisionSquares.Contains(Casillas[unit.CurrentX, unit.CurrentY]))
+                    {
+                        return true;
+                    }
+                }
+                break;
+            default:
+                break;
+        }
+        return false;
+    }
+
     //Creates the decorative cubes and texts
-    private void CreateCheers()
+    private void CreateScenery()
     {
         int cubeHeight = 4;
         int lateralEdge = 3;
