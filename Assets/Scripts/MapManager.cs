@@ -62,8 +62,8 @@ public class MapManager : MonoBehaviour
     public const int MAP_WIDTH = 10;
     public const int MAP_HEIGHT = 10;
 
-    private int selectionX = -1;
-    private int selectionY = -1;
+    public int selectionX = -1;
+    public int selectionY = -1;
 
     //Terrain variable, it has all the terrain info, and it doesn't change over the time
     public static Casilla[,] Casillas;
@@ -84,37 +84,22 @@ public class MapManager : MonoBehaviour
     //1 = blue, 2 = red...
     public int PlayerTurn = 1;
 
-    Dictionary<string, string> myDic;
+    public Transform target;
+    public float smoothSpeed = 0.125f;
+    public Vector3 offset;
 
-
+    
 
     //UnitPrefabs contains every unitPrefab needed. It has to be initializated manually with Unity UI.
     //ActiveUnits contains the GameObject of every unit, and has being created by code.
     public List<GameObject> UnitPrefabs;
     public List<GameObject> ActiveUnits;
 
-
-
-    void Start()
+    private void Start()
     {
         Casillas = new Casilla[MAP_WIDTH, MAP_HEIGHT];
 
-        //Create a Plane for Collisions and fog of war
-        GameObject Plane = GameObject.CreatePrimitive(PrimitiveType.Plane);
-
-        Plane.transform.SetParent(GameObject.Find("Map").transform);
-
-        Plane.transform.position = new Vector3(MAP_WIDTH / 2, -0.05f, MAP_HEIGHT / 2);
-        
-        float scalex = (float)MAP_WIDTH / 10;
-        float scaley = (float)MAP_HEIGHT / 10;
-        Plane.transform.localScale = new Vector3(scalex, 0, scaley);
-
-        Destroy(Plane.GetComponent<MeshCollider>());
-        Plane.AddComponent<BoxCollider>();
-        //Sets the layer number 9, "MapPlane" for the Plane
-        Plane.layer = 9;
-
+        CreateCollisionPlane();
         SetUpPrefabs();
 
         //Create every Quad and place them correctly
@@ -143,18 +128,36 @@ public class MapManager : MonoBehaviour
         PaintFog();
         PaintVision();
     }
-   
+
+    //Create a Plane for Collisions and implementing fog of war
+    private void CreateCollisionPlane()
+    {
+        GameObject Plane = GameObject.CreatePrimitive(PrimitiveType.Plane);
+
+        Plane.transform.SetParent(GameObject.Find("Map").transform);
+
+        Plane.transform.position = new Vector3(MAP_WIDTH / 2, -0.05f, MAP_HEIGHT / 2);
+
+        float scalex = (float)MAP_WIDTH / 10;
+        float scaley = (float)MAP_HEIGHT / 10;
+        Plane.transform.localScale = new Vector3(scalex, 0, scaley);
+
+        Destroy(Plane.GetComponent<MeshCollider>());
+        Plane.AddComponent<BoxCollider>();
+        //Sets the layer number 9, "MapPlane" for the Plane
+        Plane.layer = 9;
+    }
 
     // Update is called once per frame
-    void Update()
+    private void Update()
     {
         UpdateSelection();
         DrawMap();
 
 
-        //Here below, there are all the user interactions
+        //Below are shown all user interactions
 
-        //Select a Unit/Move
+        //Select a Unit and Move/Battle
         if (Input.GetMouseButtonDown(0))
         {
             if(selectionX >= 0 && selectionY >= 0)
@@ -361,8 +364,9 @@ public class MapManager : MonoBehaviour
         {
             PaintPossibleMoves(SelectedUnit);
         }
-            
 
+        
+            
 
     }
 
@@ -405,7 +409,7 @@ public class MapManager : MonoBehaviour
                     Casillas[i, j].MovementCost = 3;
                     Casillas[i, j].VisionCost = 4;
                 }
-                if (2 <= a && a < 3)
+                if (2 <= a && a < 3.1f)
                 {
                     newMat = Resources.Load("Meadow", typeof(Material)) as Material;
                     Casillas[i, j].Quad.GetComponent<Renderer>().material = newMat;
@@ -418,7 +422,7 @@ public class MapManager : MonoBehaviour
                     Casillas[i, j].MovementCost = 2;
                     Casillas[i, j].VisionCost = 3;
                 }
-                if (3 <= a && a < 4)
+                if (3.1f <= a && a < 3.9f)
                 {
                     newMat = Resources.Load("Mountain", typeof(Material)) as Material;
                     Casillas[i, j].Quad.GetComponent<Renderer>().material = newMat;
@@ -431,7 +435,7 @@ public class MapManager : MonoBehaviour
                     Casillas[i, j].MovementCost = 4;
                     Casillas[i, j].VisionCost = 2;
                 }
-                if (4 <= a && a < 5)
+                if (3.9f <= a && a < 5)
                 {
                     newMat = Resources.Load("Trail", typeof(Material)) as Material;
                     Casillas[i, j].Quad.GetComponent<Renderer>().material = newMat;
@@ -916,14 +920,23 @@ public class MapManager : MonoBehaviour
 
             //mode = 2 - The action is an attack
             case 2:
-                //First we check if the defender is visible. You cannot attack an invisible unit
+                //First we check if the defender is invisible. You cannot attack an invisible unit
                 if (!IsVisible(Units[x,y]))
                 {
+                    
                     SelectedUnit = null;
                     return false;
                 }
 
-                //Then, if the defender is in attack range
+                //Then, if the unit still has action points
+                if (unit.ActionsRemaining == 0)
+                {
+                    Debug.Log("No actions remaining");
+                    SelectedUnit = null;
+                    return false;
+                }
+
+                //Finally, if the defender is in attack range
                 int attackerRange = unit.BaseRange + Casillas[unit.CurrentX, unit.CurrentY].RangeAdaptor;
                 int distance = Mathf.Abs(unit.CurrentX - x) + Mathf.Abs(unit.CurrentY - y);
                 
@@ -1024,7 +1037,7 @@ public class MapManager : MonoBehaviour
                 {
                     if (u.ActionsRemaining != 0)
                     {
-                        Camera.main.transform.position = new Vector3(u.CurrentX, 5, u.CurrentY - 1);
+                        Camera.main.transform.position = new Vector3(u.CurrentX, 5, u.CurrentY - 3);
                         Camera.main.transform.eulerAngles = new Vector3(50, 0, 0);
                         return;
                     }
@@ -1257,20 +1270,25 @@ public class MapManager : MonoBehaviour
         return false;
     }
 
-    //Creates the decorative cubes and texts
+    //Creates the decorative cubes and informative texts
     private void CreateScenery()
     {
         int cubeHeight = 4;
         int lateralEdge = 3;
 
+        GameObject Scenery = new GameObject();
+        Scenery.name = "Scenery";
+
         GameObject cubeP1 = GameObject.CreatePrimitive(PrimitiveType.Cube);
         cubeP1.name = "CubeP1";
+        cubeP1.transform.SetParent(GameObject.Find("Scenery").transform);
 
         cubeP1.transform.position = new Vector3(MAP_WIDTH / 2, cubeHeight / 2, MAP_HEIGHT + 5);
         cubeP1.transform.localScale = new Vector3(MAP_WIDTH + 2*lateralEdge, cubeHeight, cubeHeight);
 
         GameObject cubeP2 = GameObject.CreatePrimitive(PrimitiveType.Cube);
         cubeP2.name = "CubeP2";
+        cubeP2.transform.SetParent(GameObject.Find("Scenery").transform);
 
         cubeP2.transform.position = new Vector3(MAP_WIDTH / 2, cubeHeight / 2, -5);
         cubeP2.transform.localScale = new Vector3(MAP_WIDTH + 2 * lateralEdge, cubeHeight, cubeHeight); 
@@ -1280,6 +1298,8 @@ public class MapManager : MonoBehaviour
 
         textP1.name = "CheersP1";
         textP2.name = "CheersP2";
+        textP1.transform.SetParent(GameObject.Find("Scenery").transform);
+        textP2.transform.SetParent(GameObject.Find("Scenery").transform);
 
         textP1.AddComponent<TextMesh>();
         textP1.GetComponent<TextMesh>().text = "Go P1";
@@ -1307,6 +1327,7 @@ public class MapManager : MonoBehaviour
         int turnCubeHeight = 6;
         GameObject turnCube1 = GameObject.CreatePrimitive(PrimitiveType.Cube);
         turnCube1.name = "TurnCube1";
+        turnCube1.transform.SetParent(GameObject.Find("Scenery").transform);
 
         turnCube1.transform.position = new Vector3(MAP_WIDTH + 5, turnCubeHeight / 2, MAP_HEIGHT / 2);
         turnCube1.transform.localScale = new Vector3(cubeHeight, turnCubeHeight, MAP_HEIGHT + 2*lateralEdge + 2* cubeHeight);
@@ -1314,6 +1335,7 @@ public class MapManager : MonoBehaviour
 
         GameObject turnCube2 = GameObject.CreatePrimitive(PrimitiveType.Cube);
         turnCube2.name = "TurnCube2";
+        turnCube2.transform.SetParent(GameObject.Find("Scenery").transform);
 
         turnCube2.transform.position = new Vector3(-5, turnCubeHeight/2 , MAP_HEIGHT / 2);
         turnCube2.transform.localScale = new Vector3(cubeHeight, turnCubeHeight, MAP_HEIGHT + 2 * lateralEdge + 2 * cubeHeight);
@@ -1324,6 +1346,8 @@ public class MapManager : MonoBehaviour
 
         turnText1.name = "TurnText1";
         turnText2.name = "TurnText2";
+        turnText1.transform.SetParent(GameObject.Find("Scenery").transform);
+        turnText2.transform.SetParent(GameObject.Find("Scenery").transform);
 
         turnText1.AddComponent<TextMesh>();
         turnText1.GetComponent<TextMesh>().text = "P1 TURN";

@@ -210,6 +210,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   MusicClip: {fileID: 0}
   MusicSource: {fileID: 0}
+  target: {fileID: 0}
+  smoothSpeed: 0.2
+  offset: {x: 0, y: 0, z: 0}
 --- !u!81 &1331550166
 AudioListener:
   m_ObjectHideFlags: 0
