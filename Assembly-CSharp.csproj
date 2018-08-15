@@ -63,6 +63,7 @@
   <ItemGroup>
     <Compile Include="Assets\Scripts\FollowUnit.cs" />
     <Compile Include="Assets\Scripts\MapManager.cs" />
+    <Compile Include="Assets\Scripts\SunLights.cs" />
     <Compile Include="Assets\Scripts\Unit.cs" />
     <None Include="Assets\castle-kit-1.0\License.txt" />
     <Reference Include="UnityEditor.StandardEvents">

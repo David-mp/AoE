@@ -1,7 +1,6 @@
 ﻿//#define print
 
 using UnityEngine;
-using System.Collections;
 using System.Collections.Generic;
 
 
@@ -26,6 +25,9 @@ using System.Collections.Generic;
  * -Green: Forest - 3 Movement (-Range bonus, - Attack bonus, ++Defense bonus, ++Hard to spot)
  * -Brown: Mountain - 4 Movement (+Range bonus, +Attack bonus, ++Defense bonus, --Hard to spot)
  * -Blue: River - Unreachable
+ * 
+ * The battle system is simple. To attack, the enemy unit has to be in attack range and in vision range of yours. If the enemy survives and is in attack and vision range of your unit, it will retaliate.
+ * The day and night cycle will cause each player to have a limited turn time. In addition, during the night, the units will have reduced vision and movement values, which will facilitate ambushes during this period.
  * 
  * Unit types available:
  * -Siege: They have pretty high fighting stats, but can only do 1 action per turn. This means, they can only move or attack,
@@ -59,11 +61,17 @@ public class MapManager : MonoBehaviour
     private const float TILE_OFFSET = 0.5f;
 
     //Map size, it can be adjusted to the player's preferences
-    public const int MAP_WIDTH = 10;
-    public const int MAP_HEIGHT = 10;
+    public const int MAP_WIDTH = 16;
+    public const int MAP_HEIGHT = 16;
 
     public int selectionX = -1;
     public int selectionY = -1;
+
+    //Scenery variables
+    public static int cubeHeight = 4;
+    public static int lateralEdge = 3;
+    public static int turnCubeHeight = 6;
+
 
     //Terrain variable, it has all the terrain info, and it doesn't change over the time
     public static Casilla[,] Casillas;
@@ -84,15 +92,10 @@ public class MapManager : MonoBehaviour
     //1 = blue, 2 = red...
     public int PlayerTurn = 1;
 
-    public Transform target;
-    public float smoothSpeed = 0.125f;
-    public Vector3 offset;
-
-    
 
     //UnitPrefabs contains every unitPrefab needed. It has to be initializated manually with Unity UI.
     //ActiveUnits contains the GameObject of every unit, and has being created by code.
-    public List<GameObject> UnitPrefabs;
+    private List<GameObject> UnitPrefabs;
     public List<GameObject> ActiveUnits;
 
     private void Start()
@@ -121,6 +124,7 @@ public class MapManager : MonoBehaviour
 
         //Scenery setup
         CreateScenery();
+        CreateSun();
 
         //Vision setup
         PaintBlack();
@@ -146,6 +150,18 @@ public class MapManager : MonoBehaviour
         Plane.AddComponent<BoxCollider>();
         //Sets the layer number 9, "MapPlane" for the Plane
         Plane.layer = 9;
+    }
+
+    private void CreateSun()
+    {
+
+        GameObject Sunprefab = (GameObject)Resources.Load("SunPrefab", typeof(GameObject));
+        GameObject Sun = Instantiate(Sunprefab, GetTileCenter(0, 0), Quaternion.identity) as GameObject;
+        Sunprefab.name = "Sun";
+
+        Sun.AddComponent<SunLights>();
+
+
     }
 
     // Update is called once per frame
@@ -1273,9 +1289,6 @@ public class MapManager : MonoBehaviour
     //Creates the decorative cubes and informative texts
     private void CreateScenery()
     {
-        int cubeHeight = 4;
-        int lateralEdge = 3;
-
         GameObject Scenery = new GameObject();
         Scenery.name = "Scenery";
 
@@ -1324,7 +1337,7 @@ public class MapManager : MonoBehaviour
 
 
         //TURN CUBES-----------------------------------------------------------------------------
-        int turnCubeHeight = 6;
+        
         GameObject turnCube1 = GameObject.CreatePrimitive(PrimitiveType.Cube);
         turnCube1.name = "TurnCube1";
         turnCube1.transform.SetParent(GameObject.Find("Scenery").transform);
