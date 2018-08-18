@@ -61,8 +61,8 @@ public class MapManager : MonoBehaviour
     private const float TILE_OFFSET = 0.5f;
 
     //Map size, it can be adjusted to the player's preferences
-    public const int MAP_WIDTH = 16;
-    public const int MAP_HEIGHT = 16;
+    public const int MAP_WIDTH = 10;
+    public const int MAP_HEIGHT = 10;
 
     public int selectionX = -1;
     public int selectionY = -1;
@@ -91,6 +91,9 @@ public class MapManager : MonoBehaviour
 
     //1 = blue, 2 = red...
     public int PlayerTurn = 1;
+
+    public bool isDay = true;
+    public static bool changeTurn = false;
 
 
     //UnitPrefabs contains every unitPrefab needed. It has to be initializated manually with Unity UI.
@@ -167,9 +170,10 @@ public class MapManager : MonoBehaviour
     // Update is called once per frame
     private void Update()
     {
+        CheckChangeTurn();
         UpdateSelection();
         DrawMap();
-
+        
 
         //Below are shown all user interactions
 
@@ -222,7 +226,7 @@ public class MapManager : MonoBehaviour
         //End turn
         if (Input.GetMouseButtonDown(1))
         {
-            EndTurn();
+            changeTurn = true;
             
         }
 
@@ -264,10 +268,6 @@ public class MapManager : MonoBehaviour
             Units[x, y].ActionsRemaining--;
 
             //Remove the old Square pool and calculate it again at the new position
-            Units[x, y].ReachableSquares.RemoveRange(0, Units[x, y].ReachableSquares.Count);
-            Units[x, y].CasillasInspeccionadas.RemoveRange(0, Units[x, y].CasillasInspeccionadas.Count);
-            Units[x, y].VisionSquares.RemoveRange(0, Units[x, y].VisionSquares.Count);
-            Units[x, y].Path.Clear();
             GetReachableSquares(Units[x, y], 1);
             GetReachableSquares(Units[x, y], 2);
 
@@ -542,7 +542,6 @@ public class MapManager : MonoBehaviour
     //Create the GameObject
     private void SpawnUnits(int index, int x, int y)
     {
-
         GameObject go = Instantiate(UnitPrefabs[index], GetTileCenter(x,y), Quaternion.identity) as GameObject;
         go.transform.SetParent(transform);
         go.AddComponent<Unit>();
@@ -559,56 +558,56 @@ public class MapManager : MonoBehaviour
         switch (index)
         {
             case 0:
-                FillUnitProperties(Units[x, y], "SiegeBallista", "Siege", 1, 7, 300, 200, 3, 8, 1);
+                FillUnitProperties(Units[x, y], "SiegeBallista", "Siege", 1, new int[2] { 7, 3 }, 300, 200, 3, new int[2] { 8, 4 }, 1);
 
                 GetReachableSquares(Units[x, y], 1);
                 GetReachableSquares(Units[x, y], 2);
                 UnitsP1.Add(Units[x, y]);
                 break;
             case 1:
-                FillUnitProperties(Units[x, y], "SiegeCatapult", "Siege", 1, 7, 300, 200, 3, 8, 1);
+                FillUnitProperties(Units[x, y], "SiegeCatapult", "Siege", 1, new int[2] { 7, 3 }, 300, 200, 3, new int[2] { 8, 4 }, 1);
 
                 GetReachableSquares(Units[x, y], 1);
                 GetReachableSquares(Units[x, y], 2);
                 UnitsP1.Add(Units[x, y]);
                 break;
             case 2:
-                FillUnitProperties(Units[x, y], "SiegeRam", "Siege", 1, 7, 300, 200, 3, 8, 1);
+                FillUnitProperties(Units[x, y], "SiegeRam", "Siege", 1, new int[2] { 7, 3 }, 300, 200, 3, new int[2] { 8, 4 }, 1);
 
                 GetReachableSquares(Units[x, y], 1);
                 GetReachableSquares(Units[x, y], 2);
                 UnitsP1.Add(Units[x, y]);
                 break;
             case 3:
-                FillUnitProperties(Units[x, y], "SiegeBallista", "Siege", 1, 7, 300, 200, 3, 8, 1);
+                FillUnitProperties(Units[x, y], "SiegeBallista", "Siege", 1, new int[2] { 7, 3 }, 300, 200, 3, new int[2] { 8, 4 }, 1);
 
                 GetReachableSquares(Units[x, y], 1);
                 GetReachableSquares(Units[x, y], 2);
                 UnitsP1.Add(Units[x, y]);
                 break;
             case 4:
-                FillUnitProperties(Units[x, y], "SiegeBallista", "Siege", 2, 7, 300, 200, 3, 8, 1);
+                FillUnitProperties(Units[x, y], "SiegeBallista", "Siege", 2, new int[2] { 7, 3 }, 300, 200, 3, new int[2] { 8, 4 }, 1);
 
                 GetReachableSquares(Units[x, y], 1);
                 GetReachableSquares(Units[x, y], 2);
                 UnitsP2.Add(Units[x, y]);
                 break;
             case 5:
-                FillUnitProperties(Units[x, y], "SiegeCatapult", "Siege", 2, 7, 300, 200, 3, 8, 1);
+                FillUnitProperties(Units[x, y], "SiegeCatapult", "Siege", 2, new int[2] { 7, 3 }, 300, 200, 3, new int[2] { 8, 4 }, 1);
 
                 GetReachableSquares(Units[x, y], 1);
                 GetReachableSquares(Units[x, y], 2);
                 UnitsP2.Add(Units[x, y]);
                 break;
             case 6:
-                FillUnitProperties(Units[x, y], "SiegeRam", "Siege", 2, 7, 300, 200, 3, 8, 1);
+                FillUnitProperties(Units[x, y], "SiegeRam", "Siege", 2, new int[2] { 7, 3 }, 300, 200, 3, new int[2] { 8, 4 }, 1);
 
                 GetReachableSquares(Units[x, y], 1);
                 GetReachableSquares(Units[x, y], 2);
                 UnitsP2.Add(Units[x, y]);
                 break;
             case 7:
-                FillUnitProperties(Units[x, y], "SiegeTrebuchet", "Siege", 2, 7, 300, 200, 3, 8, 1);
+                FillUnitProperties(Units[x, y], "SiegeTrebuchet", "Siege", 2, new int[2] { 7, 3 }, 300, 200, 3, new int[2] { 8, 4 }, 1);
 
                 GetReachableSquares(Units[x, y], 1);
                 GetReachableSquares(Units[x, y], 2);
@@ -622,7 +621,7 @@ public class MapManager : MonoBehaviour
     }
 
     //Helper of SetUnitProperties
-    private void FillUnitProperties(Unit unit, string name, string type, int player, int movement, int baseAttack, int baseDefense, int baseRange, int BaseVision, int actions)
+    private void FillUnitProperties(Unit unit, string name, string type, int player, int[] movement, int baseAttack, int baseDefense, int baseRange, int[] BaseVision, int actions)
     {
         unit.Name = name;
         unit.Type = type;
@@ -683,19 +682,64 @@ public class MapManager : MonoBehaviour
 
     }
 
+    private void UpdateTeamProperties()
+    {
+        switch (PlayerTurn)
+        {
+            case 1:
+                foreach (Unit u in UnitsP1)
+                {
+                    GetReachableSquares(u, 1);
+                    GetReachableSquares(u, 2);
+                }
+                    break;
+            case 2:
+                foreach (Unit u in UnitsP2)
+                {
+                    GetReachableSquares(u, 1);
+                    GetReachableSquares(u, 2);
+                }
+                break;
+
+            default:
+                
+                break;
+        }
+        
+    }
+
     //Algorithm that fills the ReachableSquares List of a unit. It can be called for getting the squares in vision range or in movement range
+    //Mode: 1-Movement mode; 2-Vision mode
     private void GetReachableSquares(Unit unit, int mode)
     {
         //A copy of ReachableSquares is necesary because you cannot iterate a collection that is changing inside the foreach loop
         List<Casilla> ReachableCopy = new List<Casilla>();
-        
+
         if (mode == 1)
         {
-            unit.RemainingMove[unit.CurrentX, unit.CurrentY] = unit.Movement;
+            unit.ReachableSquares.RemoveRange(0, unit.ReachableSquares.Count);
+            unit.CasillasInspeccionadas.RemoveRange(0, unit.CasillasInspeccionadas.Count);
+            unit.Path.Clear();
+            if (isDay)
+            {
+                unit.RemainingMove[unit.CurrentX, unit.CurrentY] = unit.Movement[0];
+            }else
+            {
+                unit.RemainingMove[unit.CurrentX, unit.CurrentY] = unit.Movement[1];
+            }
+               
         }
         if(mode == 2)
         {
-            unit.RemainingMove[unit.CurrentX, unit.CurrentY] = unit.BaseVision;
+            unit.VisionSquares.RemoveRange(0, unit.VisionSquares.Count);
+            if (isDay)
+            {
+                unit.RemainingMove[unit.CurrentX, unit.CurrentY] = unit.BaseVision[0];
+            }
+            else
+            {
+                unit.RemainingMove[unit.CurrentX, unit.CurrentY] = unit.BaseVision[1];
+            }
         }
 
         unit.ReachableSquares.Add(Casillas[unit.CurrentX, unit.CurrentY]);
@@ -998,6 +1042,11 @@ public class MapManager : MonoBehaviour
             GameObject.Find("TurnText1").GetComponent<TextMesh>().text = "P2 TURN";
             GameObject.Find("TurnText2").GetComponent<TextMesh>().text = "P2 TURN";
 
+            //Sets the sun position
+            SunLights.SetTimeCounter(Mathf.PI/2);
+
+            UpdateTeamProperties();
+
             //Update Vision
             PaintBlack();
             PaintOwnUnits();
@@ -1024,11 +1073,19 @@ public class MapManager : MonoBehaviour
                 }
             }
             PlayerTurn = 1;
+            isDay = !isDay;
 
+            //Swaps the color cubes and texts that show the player turn
             GameObject.Find("TurnCube1").GetComponent<Renderer>().material = Resources.Load("River", typeof(Material)) as Material;
             GameObject.Find("TurnCube2").GetComponent<Renderer>().material = Resources.Load("River", typeof(Material)) as Material;
             GameObject.Find("TurnText1").GetComponent<TextMesh>().text = "P1 TURN";
             GameObject.Find("TurnText2").GetComponent<TextMesh>().text = "P1 TURN";
+
+
+            //Sets the sun position
+            SunLights.SetTimeCounter(0);
+
+            UpdateTeamProperties();
 
             //Update Vision
             PaintBlack();
@@ -1036,6 +1093,20 @@ public class MapManager : MonoBehaviour
             PaintFog();
             PaintVision();
 
+            if (!isDay)
+            {
+                GameObject.Find("Sun(Clone)").transform.GetComponent<Renderer>().material = Resources.Load("Moon", typeof(Material)) as Material;
+                GameObject.Find("Directional Light").transform.eulerAngles = new Vector3(-40, -30, 0);
+                GameObject.Find("Sun(Clone)").transform.GetChild(0).GetComponent<Light>().intensity = (GameObject.Find("Sun(Clone)").transform.GetChild(0).GetComponent<Light>().range / 2) * 0.8f;
+                SelectedUnit = null;
+                return;
+            }
+            else
+            {
+                GameObject.Find("Sun(Clone)").transform.GetComponent<Renderer>().material = Resources.Load("Sun", typeof(Material)) as Material;
+                GameObject.Find("Directional Light").transform.eulerAngles = new Vector3(50, -30, 0);
+                GameObject.Find("Sun(Clone)").transform.GetChild(0).GetComponent<Light>().intensity = (GameObject.Find("Sun(Clone)").transform.GetChild(0).GetComponent<Light>().range / 2) * 0.6f;
+            }
             SelectedUnit = null;
             return;
         }
@@ -1408,6 +1479,17 @@ public class MapManager : MonoBehaviour
         }
 
     }
+
+    //Interruption checker
+    private void CheckChangeTurn()
+    {
+        if (changeTurn)
+        {
+            changeTurn = false;
+            EndTurn();
+        }
+    }
+
 
     //Helper that generates the proper vector3 given the index x,y
     private Vector3 GetTileCenter(int x, int y)

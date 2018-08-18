@@ -2,7 +2,7 @@
 
 public class SunLights : MonoBehaviour {
 
-    float timeCounter = 0;
+    static float timeCounter = 0;
 
     public float speed;
     public float width;
@@ -10,11 +10,13 @@ public class SunLights : MonoBehaviour {
 
     public Vector3 offset;
 
-    public bool playing = false;
-
-    public string mat;
-
+    public bool continues = true;
     
+
+    public static void SetTimeCounter(float time)
+    {
+        timeCounter = time;
+    }
 
     // Use this for initialization
     void Start () {
@@ -27,13 +29,12 @@ public class SunLights : MonoBehaviour {
         transform.GetChild(0).GetComponent<Light>().range = Mathf.Max(width, height) + 5;
         transform.GetChild(0).GetComponent<Light>().intensity = (transform.GetChild(0).GetComponent<Light>().range / 2)*0.6f;
 
-
         transform.GetComponent<Renderer>().material = Resources.Load("Sun", typeof(Material)) as Material;
-        mat = "sun";
+
     }
 	
 	// Update is called once per frame
-	void FixedUpdate () {
+	void Update () {
         timeCounter += Time.deltaTime * speed;
 
         float x = width*Mathf.Cos(timeCounter);
@@ -45,50 +46,24 @@ public class SunLights : MonoBehaviour {
 
         transform.position = new Vector3(x, y, z) + offset;
         transform.GetChild(0).transform.eulerAngles = new Vector3(xRot, -90, 0);
-        
 
-        if (y >= width - 0.0001f)
+
+        float var = MapManager.MAP_WIDTH / 2;
+
+        if ((transform.position.x < var) && continues)
         {
-            NextCycle();
+            continues = false;
+            MapManager.changeTurn = true;
         }
 
 
-        if(y <= 0)
+        if(y < 0)
         {
-            EndCicle();
+            continues = true;
+            MapManager.changeTurn = true;
         }
 		
 	}
 
-    private void NextCycle()
-    {
-        //GameObject.Find("Main Camera").GetComponent<AudioSource>().Play();
-        
-    }
-
-
-
-    private void EndCicle()
-    {
-        // GameObject.Find("Main Camera").GetComponent<AudioSource>().Play();
-        
-        
-        timeCounter = 0;
-
-        if(mat == "sun")
-        {
-            
-            transform.GetComponent<Renderer>().material = Resources.Load("Moon", typeof(Material)) as Material;
-            mat = "moon";
-            GameObject.Find("Directional Light").transform.eulerAngles = new Vector3(-40, -30, 0);
-            transform.GetChild(0).GetComponent<Light>().intensity = (transform.GetChild(0).GetComponent<Light>().range / 2) * 0.8f;
-        } else
-        {
-            transform.GetComponent<Renderer>().material = Resources.Load("Sun", typeof(Material)) as Material;
-            mat = "sun";
-            GameObject.Find("Directional Light").transform.eulerAngles = new Vector3(50, -30, 0);
-            transform.GetChild(0).GetComponent<Light>().intensity = (transform.GetChild(0).GetComponent<Light>().range / 2) * 0.6f;
-
-        }
-    }
+    
 }

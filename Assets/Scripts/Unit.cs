@@ -11,11 +11,11 @@ public class Unit : MonoBehaviour {
     public string Name;
     public string Type;
     public int Player;
-    public int Movement;
+    public int[] Movement;
     public int BaseAttack;
     public int BaseDefense;
     public int BaseRange;
-    public int BaseVision;
+    public int[] BaseVision;
     public int HitPoints;
     public int ActionsRemaining;
     public GameObject GameUnit;
