@@ -267,6 +267,8 @@ public class MapManager : MonoBehaviour
             Units[x, y].CurrentY = y;
             Units[x, y].ActionsRemaining--;
 
+            RotateUnit(Units[x, y]);
+
             //Remove the old Square pool and calculate it again at the new position
             GetReachableSquares(Units[x, y], 1);
             GetReachableSquares(Units[x, y], 2);
@@ -280,18 +282,70 @@ public class MapManager : MonoBehaviour
 
     }
 
+    private float[] GetTypeModifier(Unit attacker, Unit defender)
+    {
+        //AttackA, DefenseA, AttackD, DefenseD 
+        float[] TypesModifiers = new float[4];
+
+        switch (attacker.Type)
+        {
+            case "Infantry":
+                if (defender.Type == "Siege")
+                {
+                    TypesModifiers[0] = 0.2f;
+                }
+                if (defender.Type == "Building")
+                {
+                    TypesModifiers[0] = 0.3f;
+                }
+                break;
+
+            case "Siege":
+                if (defender.Type == "Building")
+                {
+                    TypesModifiers[0] = 0.3f;
+                }
+                break;
+
+            case "Cavalry":
+                if (defender.Type == "Infantry")
+                {
+                    TypesModifiers[0] = 0.2f;
+                }
+                if (defender.Type == "Range")
+                {
+                    TypesModifiers[0] = 0.2f;
+                }
+                break;
+
+
+            default:
+                Debug.Log("Wrong unit type at GetTypeModifier");
+                break;
+        }
+
+
+
+        return TypesModifiers;
+    }
+
     //Battle between two units. First, the attacker attacks, and then, if the defender is able to retaliate, their remaining units will retaliate
     private void Battle(Unit attacker, Unit defender)
     {
+
+        float[] TypesModifiers = GetTypeModifier(attacker, defender);
+
         //First, we calculate the unit's stats for the incoming battle (Terrain modificator, type bonusses, unit buffs...) 
         //This way, these bonusses will expire and the unit will no longer maintain them
         //Attacker stats
-        int AttackStatA = (int)(attacker.BaseAttack * (1 + Casillas[attacker.CurrentX,attacker.CurrentY].AttackAdaptor));
-        int DefenseStatA = (int)(attacker.BaseDefense * (1 + Casillas[attacker.CurrentX, attacker.CurrentY].DefenseAdaptor)); 
+        int AttackStatA = (int)(attacker.BaseAttack * (1 + Casillas[attacker.CurrentX,attacker.CurrentY].AttackAdaptor + TypesModifiers[0]));
+        int DefenseStatA = (int)(attacker.BaseDefense * (1 + Casillas[attacker.CurrentX, attacker.CurrentY].DefenseAdaptor + TypesModifiers[1])); 
         
         //Defender stats
-        int AttackStatD = (int)(defender.BaseAttack * (1 + Casillas[defender.CurrentX, attacker.CurrentY].AttackAdaptor));
-        int DefenseStatD = (int)(defender.BaseDefense * (1 + Casillas[defender.CurrentX, attacker.CurrentY].DefenseAdaptor));
+        int AttackStatD = (int)(defender.BaseAttack * (1 + Casillas[defender.CurrentX, attacker.CurrentY].AttackAdaptor + TypesModifiers[2]));
+        int DefenseStatD = (int)(defender.BaseDefense * (1 + Casillas[defender.CurrentX, attacker.CurrentY].DefenseAdaptor + TypesModifiers[3]));
+
+        
 
         //Now, the attacker will attack the oponent
         Debug.Log("Ataque:" + AttackStatA + "   --Defensa:" + DefenseStatD + "   --HpAt:" + attacker.HitPoints + "  --HpD:" + defender.HitPoints);
@@ -324,10 +378,11 @@ public class MapManager : MonoBehaviour
         attacker.ActionsRemaining = 0;
     }
 
-    //Fight rule: Every hitpoint of the attacker unit will cause 1hitpoint damage to the defender if the attacker doubles the defender's defense
+    //Returns the remaining defender's hit points after the battle
     private int Fight(int attack, int defense, int hpA, int hpD)
     {
-        
+        //Fight rule: Every hitpoint of the attacker unit will cause 1hitpoint damage to the defender if the attacker doubles the defender's defense
+
         float DefensorLosses = (float)hpA  * attack / (2 * (float)defense);
         Debug.Log("Losses" + DefensorLosses);
         hpD = hpD - (int)DefensorLosses;
@@ -510,6 +565,12 @@ public class MapManager : MonoBehaviour
 
         unitprefab = (GameObject)Resources.Load("siegeTrebuchet (red)", typeof(GameObject));
         UnitPrefabs.Add(unitprefab);
+
+        unitprefab = (GameObject)Resources.Load("Warrior", typeof(GameObject));
+        UnitPrefabs.Add(unitprefab);
+
+        unitprefab = (GameObject)Resources.Load("Warrior (red)", typeof(GameObject));
+        UnitPrefabs.Add(unitprefab);
     }
 
     //Selects which units are going to be in the game aswell as their positions
@@ -528,6 +589,7 @@ public class MapManager : MonoBehaviour
         SpawnUnits(1, 3, 3);
         SpawnUnits(2, 5, 3);
         SpawnUnits(3, 7, 0);
+        SpawnUnits(8, 1, 1);
 
 
 
@@ -536,6 +598,7 @@ public class MapManager : MonoBehaviour
         SpawnUnits(5, 3, 6);
         SpawnUnits(6, 5, 6);
         SpawnUnits(7, 7, 9);
+        SpawnUnits(9, 6, 9);
 
     }
 
@@ -572,7 +635,7 @@ public class MapManager : MonoBehaviour
                 UnitsP1.Add(Units[x, y]);
                 break;
             case 2:
-                FillUnitProperties(Units[x, y], "SiegeRam", "Siege", 1, new int[2] { 7, 3 }, 300, 200, 3, new int[2] { 8, 4 }, 1);
+                FillUnitProperties(Units[x, y], "SiegeRam", "Siege", 1, new int[2] { 7, 3 }, 300, 200, 1, new int[2] { 8, 4 }, 1);
 
                 GetReachableSquares(Units[x, y], 1);
                 GetReachableSquares(Units[x, y], 2);
@@ -600,7 +663,7 @@ public class MapManager : MonoBehaviour
                 UnitsP2.Add(Units[x, y]);
                 break;
             case 6:
-                FillUnitProperties(Units[x, y], "SiegeRam", "Siege", 2, new int[2] { 7, 3 }, 300, 200, 3, new int[2] { 8, 4 }, 1);
+                FillUnitProperties(Units[x, y], "SiegeRam", "Siege", 2, new int[2] { 7, 3 }, 300, 200, 1, new int[2] { 8, 4 }, 1);
 
                 GetReachableSquares(Units[x, y], 1);
                 GetReachableSquares(Units[x, y], 2);
@@ -608,6 +671,23 @@ public class MapManager : MonoBehaviour
                 break;
             case 7:
                 FillUnitProperties(Units[x, y], "SiegeTrebuchet", "Siege", 2, new int[2] { 7, 3 }, 300, 200, 3, new int[2] { 8, 4 }, 1);
+
+                GetReachableSquares(Units[x, y], 1);
+                GetReachableSquares(Units[x, y], 2);
+                UnitsP2.Add(Units[x, y]);
+                break;
+
+                //Warriors
+            case 8:
+                FillUnitProperties(Units[x, y], "Warrior", "Infantry", 1, new int[2] { 10, 4 }, 250, 200, 1, new int[2] { 12, 6 }, 2);
+
+                GetReachableSquares(Units[x, y], 1);
+                GetReachableSquares(Units[x, y], 2);
+                UnitsP1.Add(Units[x, y]);
+                break;
+
+            case 9:
+                FillUnitProperties(Units[x, y], "Warrior", "Infantry", 2, new int[2] { 10, 4 }, 250, 200, 1, new int[2] { 12, 6 }, 2);
 
                 GetReachableSquares(Units[x, y], 1);
                 GetReachableSquares(Units[x, y], 2);
@@ -682,6 +762,7 @@ public class MapManager : MonoBehaviour
 
     }
 
+    //Updates de movement and vision points of the player when day cycle changes
     private void UpdateTeamProperties()
     {
         switch (PlayerTurn)
@@ -974,8 +1055,17 @@ public class MapManager : MonoBehaviour
         {
             //mode = 1 - The action is a move
             case 1:
-                if (unit.CasillasInspeccionadas.Contains(Casillas[x, y]) && unit.ActionsRemaining != 0)
-                    return true;
+                if(unit.Type == "Siege")
+                {
+                    if (unit.CasillasInspeccionadas.Contains(Casillas[x, y]) && unit.ActionsRemaining != 0)
+                        return true;
+                }
+                else
+                {
+                    if (unit.CasillasInspeccionadas.Contains(Casillas[x, y]) && unit.ActionsRemaining == 2)
+                        return true;
+                }
+                    
                 break;
 
             //mode = 2 - The action is an attack
@@ -983,7 +1073,6 @@ public class MapManager : MonoBehaviour
                 //First we check if the defender is invisible. You cannot attack an invisible unit
                 if (!IsVisible(Units[x,y]))
                 {
-                    
                     SelectedUnit = null;
                     return false;
                 }
@@ -1035,6 +1124,7 @@ public class MapManager : MonoBehaviour
                 }
             }
             PlayerTurn = 2;
+            SunLights.continues = false;
 
             //Swaps the color cubes and texts that show the player turn
             GameObject.Find("TurnCube1").GetComponent<Renderer>().material = Resources.Load("Red", typeof(Material)) as Material;
@@ -1074,6 +1164,7 @@ public class MapManager : MonoBehaviour
             }
             PlayerTurn = 1;
             isDay = !isDay;
+            SunLights.continues = true;
 
             //Swaps the color cubes and texts that show the player turn
             GameObject.Find("TurnCube1").GetComponent<Renderer>().material = Resources.Load("River", typeof(Material)) as Material;
@@ -1355,6 +1446,48 @@ public class MapManager : MonoBehaviour
                 break;
         }
         return false;
+    }
+
+    //Rotates the unit according to the square from which it comes
+    private void RotateUnit(Unit unit)
+    {
+        Casilla previous = unit.Path[Casillas[unit.CurrentX, unit.CurrentY]];
+
+        //Oriented down
+        if(unit.CurrentY < previous.y)
+        {
+            unit.GameUnit.transform.eulerAngles = new Vector3(0, 180, 0);
+        }
+        else
+        {
+            //Oriented up
+            if (unit.CurrentY > previous.y)
+            {
+                unit.GameUnit.transform.eulerAngles = new Vector3(0, 0, 0);
+            }
+            else
+            {
+
+                //Oriented to the left
+                if (unit.CurrentX < previous.x)
+                {
+                    unit.GameUnit.transform.eulerAngles = new Vector3(0, -90, 0);
+                }
+                else
+                {
+                    //Oriented to the right
+                    unit.GameUnit.transform.eulerAngles = new Vector3(0, 90, 0);
+                }
+            }
+
+        }
+
+        if(unit.Type == "Siege")
+        {
+            unit.transform.Rotate(0, 90, 0);
+        }
+
+        
     }
 
     //Creates the decorative cubes and informative texts

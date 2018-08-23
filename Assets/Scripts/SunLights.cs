@@ -10,7 +10,7 @@ public class SunLights : MonoBehaviour {
 
     public Vector3 offset;
 
-    public bool continues = true;
+    public static bool continues;
     
 
     public static void SetTimeCounter(float time)
@@ -20,7 +20,8 @@ public class SunLights : MonoBehaviour {
 
     // Use this for initialization
     void Start () {
-        
+        continues = true;
+
         speed = 0.05f;
         width = (MapManager.MAP_WIDTH + 2*MapManager.lateralEdge + 2*MapManager.cubeHeight + 2*MapManager.turnCubeHeight)/2;
         height = (MapManager.MAP_HEIGHT + 2*MapManager.lateralEdge + 2*MapManager.cubeHeight + 2*MapManager.turnCubeHeight) / 2;
