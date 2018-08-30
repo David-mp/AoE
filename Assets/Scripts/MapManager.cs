@@ -2,6 +2,9 @@
 
 using UnityEngine;
 using System.Collections.Generic;
+using System.Collections;
+using UnityEngine.UI;
+
 
 
 
@@ -32,7 +35,7 @@ using System.Collections.Generic;
  * Unit types available:
  * -Siege: They have pretty high fighting stats, but can only do 1 action per turn. This means, they can only move or attack,
  * so positioning is very important due to their low movement.
- *         
+ * -Infantry: High movement and vision values. They have bonus attack against siege    
  * 
  * Controls:
  * Left clicl: Select unit / Move unit
@@ -101,6 +104,7 @@ public class MapManager : MonoBehaviour
     private List<GameObject> UnitPrefabs;
     public List<GameObject> ActiveUnits;
 
+
     private void Start()
     {
         Casillas = new Casilla[MAP_WIDTH, MAP_HEIGHT];
@@ -134,38 +138,12 @@ public class MapManager : MonoBehaviour
         PaintOwnUnits();
         PaintFog();
         PaintVision();
+
+        CreateMinimap();
+        CreateMinimapCamera();
     }
 
-    //Create a Plane for Collisions and implementing fog of war
-    private void CreateCollisionPlane()
-    {
-        GameObject Plane = GameObject.CreatePrimitive(PrimitiveType.Plane);
-
-        Plane.transform.SetParent(GameObject.Find("Map").transform);
-
-        Plane.transform.position = new Vector3(MAP_WIDTH / 2, -0.05f, MAP_HEIGHT / 2);
-
-        float scalex = (float)MAP_WIDTH / 10;
-        float scaley = (float)MAP_HEIGHT / 10;
-        Plane.transform.localScale = new Vector3(scalex, 0, scaley);
-
-        Destroy(Plane.GetComponent<MeshCollider>());
-        Plane.AddComponent<BoxCollider>();
-        //Sets the layer number 9, "MapPlane" for the Plane
-        Plane.layer = 9;
-    }
-
-    private void CreateSun()
-    {
-
-        GameObject Sunprefab = (GameObject)Resources.Load("SunPrefab", typeof(GameObject));
-        GameObject Sun = Instantiate(Sunprefab, GetTileCenter(0, 0), Quaternion.identity) as GameObject;
-        Sunprefab.name = "Sun";
-
-        Sun.AddComponent<SunLights>();
-
-
-    }
+    
 
     // Update is called once per frame
     private void Update()
@@ -237,6 +215,13 @@ public class MapManager : MonoBehaviour
         }
     }
 
+    //The minimap is updated after the map has changed 
+    private void LateUpdate()
+    {
+        UpdateMinimap();
+    }
+
+
     //Active a SelectedUnit to interact with
     private void SelectUnit(int x, int y)
     {
@@ -281,6 +266,7 @@ public class MapManager : MonoBehaviour
         SelectedUnit = null;
 
     }
+
 
     private float[] GetTypeModifier(Unit attacker, Unit defender)
     {
@@ -1217,6 +1203,7 @@ public class MapManager : MonoBehaviour
                     {
                         Camera.main.transform.position = new Vector3(u.CurrentX, 5, u.CurrentY - 3);
                         Camera.main.transform.eulerAngles = new Vector3(50, 0, 0);
+                        GameObject.Find("MinimapCamera").transform.eulerAngles = new Vector3(0, 0, 0);
                         return;
                     }
                 }
@@ -1228,6 +1215,7 @@ public class MapManager : MonoBehaviour
                     {
                         Camera.main.transform.position = new Vector3(u.CurrentX, 5, u.CurrentY + 3);
                         Camera.main.transform.eulerAngles = new Vector3(130, 0, 180);
+                        GameObject.Find("MinimapCamera").transform.eulerAngles = new Vector3(0, 0, 180);
                         return;
                     }
                 }
@@ -1588,6 +1576,198 @@ public class MapManager : MonoBehaviour
 
     }
 
+    //Creates a Plane for Collisions and fog of war's implementation 
+    private void CreateCollisionPlane()
+    {
+        GameObject Plane = GameObject.CreatePrimitive(PrimitiveType.Plane);
+
+        Plane.transform.SetParent(GameObject.Find("Map").transform);
+
+        Plane.transform.position = new Vector3(MAP_WIDTH / 2, -0.05f, MAP_HEIGHT / 2);
+
+        float scalex = (float)MAP_WIDTH / 10;
+        float scaley = (float)MAP_HEIGHT / 10;
+        Plane.transform.localScale = new Vector3(scalex, 0, scaley);
+
+        Destroy(Plane.GetComponent<MeshCollider>());
+        Plane.AddComponent<BoxCollider>();
+        //Sets the layer number 9, "MapPlane" for the Plane
+        Plane.layer = 9;
+    }
+
+    //Creates the Sun used for determining the maximun player's turn time
+    private void CreateSun()
+    {
+
+        GameObject Sunprefab = (GameObject)Resources.Load("SunPrefab", typeof(GameObject));
+        GameObject Sun = Instantiate(Sunprefab, GetTileCenter(0, 0), Quaternion.identity) as GameObject;
+        Sunprefab.name = "Sun";
+
+        Sun.AddComponent<SunLights>();
+
+    }
+
+    //Helper that returns a string that represents the SquareInfo to show on the minimap
+    private string SquareState(int x, int y)
+    {
+        //If the Square is Unexplored, it will return "Unexplored", and its sprite will be black
+        //If the Square is visible, if there is a unit on it, the function will return "Blue" or "Red", depending on the unit's team
+        //And if there is no unit and the square is explored, it will return "Terrain"
+        if (selectionX == x && selectionY == y)
+        {
+            return "Selection";
+        } else
+        {
+            if (Casillas[x, y].Quad.GetComponent<MeshRenderer>().enabled)
+            {
+
+                if (Units[x, y] == null)
+                {
+                    return "Terrain";
+                }
+                else
+                {//If there is a unit...
+
+                    switch (Units[x, y].Player)
+                    {
+                        case 1:
+                            if ((PlayerTurn == 1) || (PlayerTurn == 2 && IsVisible(Units[x, y])))
+                            {
+                                return "Blue";
+                            }
+                            else
+                            {
+                                return "Terrain";
+                            }
+
+                        case 2:
+                            if ((PlayerTurn == 2) || (PlayerTurn == 1 && IsVisible(Units[x, y])))
+                            {
+                                return "Red";
+                            }
+                            else
+                            {
+                                return "Terrain";
+                            }
+
+                        default:
+                            Debug.Log("Wrong Player at SquareState");
+                            return "Error";
+
+                    }
+                }
+            }
+            else
+            {
+                return "Unexplored";
+            }
+        }
+
+        
+    }
+
+    
+
+
+    //Selects the proper sprites of the MinimapGrid to represent the state of the game
+    private void UpdateMinimap()
+    {
+        int childCount = 0;
+        for (int i = 0; i < MAP_WIDTH; i++)
+        {
+            for (int j = 0; j < MAP_HEIGHT; j++)
+            {
+                //Debug.Log("CHildcount: " + childCount);
+
+                //We create a string that represents the state of the square. Then, in order to find the sprite name, we just add "Sp". For example, if SquareState returns "Blue", the SquareSprite will be "BlueSp" in the resources folder
+                string spriteName = SquareState(i, j) + "Sp";
+
+                GameObject.Find("MinimapGridObject").transform.GetChild(childCount).GetComponent<SpriteRenderer>().sprite = (Sprite)Resources.Load(spriteName, typeof(Sprite));
+
+                childCount++;
+            }
+        }
+    }
+
+    //Funcion that waits for the MinmapGrid.cs to build up the grid, before the minimap is updated
+    IEnumerator waiter()
+    {
+        //Wait for 1 second
+        yield return new WaitForSeconds(1);
+
+        UpdateMinimap();
+    }
+
+    //Creates the MinimapGrid
+    private void CreateMinimap()
+    {
+        GameObject Minimap = new GameObject();
+
+        Minimap.AddComponent<Grid>();
+        Minimap.name = "MinimapGridObject";
+        Minimap.transform.position = new Vector3(0, 40 + MAP_HEIGHT, 0);
+
+        Minimap.AddComponent<MinimapGrid>();
+
+        StartCoroutine(waiter());
+    }
+
+    private void CreateMinimapCamera()
+    {
+        //Create the camera
+        GameObject MinimapCameraO = new GameObject();
+        MinimapCameraO.name = "MinimapCamera";
+
+        MinimapCameraO.AddComponent<Camera>();
+        MinimapCameraO.transform.position = new Vector3(0, 40 + MAP_HEIGHT, -MAP_HEIGHT);
+        MinimapCameraO.GetComponent<Camera>().orthographic = true;
+        MinimapCameraO.GetComponent<Camera>().targetTexture = (RenderTexture)Resources.Load("MinimapRenderTexture", typeof(RenderTexture));
+
+        float zoomFactor = Mathf.Max(MAP_HEIGHT, MAP_WIDTH) / 2;
+        MinimapCameraO.GetComponent<Camera>().orthographicSize = zoomFactor;
+
+        //Create the UI elements that are necessary for the minimap visualization
+        //First, the Canvas
+        GameObject CanvasO = new GameObject();
+        CanvasO.name = "MinimapCanvas";
+        CanvasO.AddComponent<Canvas>();
+        CanvasO.GetComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
+
+
+        //Then, the minimap border
+        GameObject MinimapBorder = new GameObject();
+        MinimapBorder.name = "MinimapBorder";
+        MinimapBorder.transform.SetParent(CanvasO.transform);
+        MinimapBorder.AddComponent<Image>();
+        Image border = MinimapBorder.GetComponent<Image>();
+
+        border.rectTransform.localPosition = new Vector3(-75, -75, 0);
+        border.rectTransform.anchorMin = new Vector2(1, 1);
+        border.rectTransform.anchorMax = new Vector2(1, 1);
+        border.rectTransform.pivot = new Vector2(0.5f, 0.5f);
+        border.rectTransform.sizeDelta = new Vector2(107, 107);
+
+
+        //Create the minimap raw image and bind it to the RenderTexture of the minimap
+        GameObject Image = new GameObject();
+        Image.name = "MinimapImage";
+        Image.transform.SetParent(MinimapBorder.transform);
+        Image.AddComponent<RawImage>();
+        RawImage raw = Image.GetComponent<RawImage>();
+        raw.texture = (Texture)Resources.Load("MinimapRenderTexture", typeof(Texture));
+
+        //To position the minimap at the top-right corner of the screen, anchorMin and anchorMax should be (1,1)
+        //If we wanted to position it at the center instead, both values should be (0.5f,0.5f)
+        raw.rectTransform.localPosition = new Vector3(0, 0, 0);
+        raw.rectTransform.anchorMin = new Vector2(0.5f, 0.5f);
+        raw.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
+        raw.rectTransform.pivot = new Vector2(0.5f, 0.5f);
+
+
+
+
+    }
+
     //Helper that tracks the mouse position and stores it at selectionX/Y 
     private void UpdateSelection()
     {
@@ -1622,7 +1802,6 @@ public class MapManager : MonoBehaviour
             EndTurn();
         }
     }
-
 
     //Helper that generates the proper vector3 given the index x,y
     private Vector3 GetTileCenter(int x, int y)
